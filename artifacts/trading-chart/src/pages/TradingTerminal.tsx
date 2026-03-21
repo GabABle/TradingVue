@@ -11,28 +11,26 @@ import {
   getRangeStart,
   resolveInterval,
 } from "@/lib/ranges";
-import { Activity, AlertCircle } from "lucide-react";
+import { Activity, AlertCircle, Star } from "lucide-react";
 
 const DEFAULT_WATCHLIST = ["AAPL", "MSFT", "TSLA", "GOOGL", "NVDA", "AMZN", "BTCUSD", "ETHUSD"];
 
 export default function TradingTerminal() {
-  const [symbol, setSymbol]           = useState("AAPL");
+  const [symbol, setSymbol]               = useState("AAPL");
   const [selectedRange, setSelectedRange] = useState<RangeKey>("1Y");
-  const [interval, setInterval]       = useState<IntervalKey>("1Day");
-  const [showRSI, setShowRSI]         = useState(false);
-  const [smaPeriod, setSmaPeriod]     = useState<number | null>(null);
-  const [emaPeriod, setEmaPeriod]     = useState<number | null>(null);
-  const [watchlist, setWatchlist]     = useState<string[]>(DEFAULT_WATCHLIST);
-  const [searchOpen, setSearchOpen]   = useState(false);
+  const [interval, setInterval]           = useState<IntervalKey>("1Day");
+  const [showRSI, setShowRSI]             = useState(false);
+  const [smaPeriod, setSmaPeriod]         = useState<number | null>(null);
+  const [emaPeriod, setEmaPeriod]         = useState<number | null>(null);
+  const [watchlist, setWatchlist]         = useState<string[]>(DEFAULT_WATCHLIST);
+  const [searchOpen, setSearchOpen]       = useState(false);
   const [searchInitial, setSearchInitial] = useState("");
 
-  // When range changes, auto-adjust interval to the best valid option
   const handleRangeChange = useCallback((newRange: RangeKey) => {
     setSelectedRange(newRange);
     setInterval((prev) => resolveInterval(newRange, prev));
   }, []);
 
-  // When interval is picked directly, just update it (always valid — toolbar only shows valid options)
   const handleIntervalChange = useCallback((newInterval: IntervalKey) => {
     setInterval(newInterval);
   }, []);
@@ -44,7 +42,7 @@ export default function TradingTerminal() {
     limit: 2000,
   });
 
-  // Global keydown: letter key → open search pre-filled
+  // Global keydown: any letter key → open search pre-filled with that character
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -65,9 +63,19 @@ export default function TradingTerminal() {
     setSearchOpen(true);
   }, []);
 
+  // Selecting a symbol from search only changes the chart — user pins manually via star
   const handleSymbolSelect = (sym: string) => {
     setSymbol(sym);
-    setWatchlist((prev) => (prev.includes(sym) ? prev : [sym, ...prev]));
+  };
+
+  const isInWatchlist = watchlist.includes(symbol);
+
+  const toggleWatchlist = () => {
+    if (isInWatchlist) {
+      setWatchlist((prev) => prev.filter((s) => s !== symbol));
+    } else {
+      setWatchlist((prev) => [symbol, ...prev]);
+    }
   };
 
   return (
@@ -120,9 +128,7 @@ export default function TradingTerminal() {
           )}
 
           {!error && barsData && barsData.bars.length > 0 && (
-            <div className="flex-1 w-full h-full rounded-xl overflow-hidden shadow-2xl animate-in fade-in duration-300">
-              {/* key forces a clean remount whenever symbol / interval / range changes,
-                  eliminating stale series references that cause lightweight-charts crashes */}
+            <div className="relative flex-1 w-full h-full rounded-xl overflow-hidden shadow-2xl animate-in fade-in duration-300">
               <ChartWidget
                 key={`${symbol}|${interval}|${selectedRange}`}
                 data={barsData.bars}
@@ -130,6 +136,29 @@ export default function TradingTerminal() {
                 smaPeriod={smaPeriod}
                 emaPeriod={emaPeriod}
               />
+
+              {/* ── Watchlist star button ── */}
+              <button
+                onClick={toggleWatchlist}
+                title={isInWatchlist ? `Remove ${symbol} from watchlist` : `Add ${symbol} to watchlist`}
+                className={`
+                  absolute top-3 left-3 z-20
+                  flex items-center gap-1.5 px-2.5 py-1.5
+                  rounded-md border text-xs font-semibold
+                  backdrop-blur-sm transition-all duration-150 group
+                  ${isInWatchlist
+                    ? "bg-[#1e222d]/90 border-[#f59e0b]/40 text-[#f59e0b] hover:border-[#ef5350]/50 hover:text-[#ef5350]"
+                    : "bg-[#1e222d]/80 border-[#2a2e39] text-[#787b86] hover:border-[#f59e0b]/50 hover:text-[#f59e0b]"
+                  }
+                `}
+              >
+                <Star
+                  className={`w-3.5 h-3.5 transition-all ${
+                    isInWatchlist ? "fill-[#f59e0b]" : "fill-transparent group-hover:fill-[#f59e0b]/20"
+                  }`}
+                />
+                {isInWatchlist ? "Watching" : "Watch"}
+              </button>
             </div>
           )}
         </main>

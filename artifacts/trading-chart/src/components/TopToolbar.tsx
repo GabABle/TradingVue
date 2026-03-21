@@ -1,4 +1,4 @@
-import { Activity, TrendingUp, Settings2, ChevronDown } from "lucide-react";
+import { Activity, TrendingUp, Settings2, Search } from "lucide-react";
 import { useGetQuote } from "@workspace/api-client-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -55,12 +55,14 @@ export function TopToolbar({
 
       {/* ── Left: symbol + live price ── */}
       <div className="flex items-center gap-3 shrink-0">
+        {/* Symbol search trigger — clicking opens search, but typing anywhere also works */}
         <button
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-[#2a2e39] hover:bg-[#363a45] border border-[#363a45] rounded-md text-[#d1d4dc] font-mono font-bold text-sm transition-colors shadow-sm"
+          className="group flex items-center gap-2 px-3 py-1.5 bg-[#131722] hover:bg-[#2a2e39] border border-[#2a2e39] hover:border-[#363a45] rounded-md transition-all duration-150 shadow-sm"
           onClick={() => onSearchOpen()}
+          title="Click or start typing to search symbols"
         >
-          {symbol}
-          <ChevronDown className="w-3.5 h-3.5 text-[#787b86]" />
+          <Search className="w-3.5 h-3.5 text-[#4a4f5e] group-hover:text-[#787b86] transition-colors shrink-0" />
+          <span className="text-[#d1d4dc] font-mono font-bold text-sm tracking-wide">{symbol}</span>
         </button>
 
         {quote ? (
@@ -90,7 +92,7 @@ export function TopToolbar({
       {/* ── Right: controls ── */}
       <div className="flex items-center gap-2 shrink-0">
 
-        {/* Interval selector — only shows valid options for the current range */}
+        {/* Interval selector */}
         <div className="flex bg-[#131722] rounded-md border border-[#2a2e39] p-0.5">
           {validIntervals.map((iv) => (
             <button
