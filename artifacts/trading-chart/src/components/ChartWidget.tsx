@@ -1,4 +1,4 @@
-import { useEffect, useRef, useMemo } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   createChart,
   ColorType,
@@ -20,11 +20,29 @@ interface ChartWidgetProps {
   emaPeriod: number | null;
 }
 
-const normalizeTime = (isoString: string): Time => {
-  return (new Date(isoString).getTime() / 1000) as Time;
-};
+function toEpochSeconds(isoString: string): number {
+  return Math.floor(new Date(isoString).getTime() / 1000);
+}
 
-const DARK_CHART_OPTIONS = {
+function normalizeTime(isoString: string): Time {
+  return toEpochSeconds(isoString) as Time;
+}
+
+/** Sort bars by timestamp ascending, then remove any duplicates (same second). */
+function sanitizeBars(bars: Bar[]): Bar[] {
+  const sorted = [...bars].sort(
+    (a, b) => toEpochSeconds(a.t) - toEpochSeconds(b.t)
+  );
+  const seen = new Set<number>();
+  return sorted.filter((b) => {
+    const ts = toEpochSeconds(b.t);
+    if (seen.has(ts)) return false;
+    seen.add(ts);
+    return true;
+  });
+}
+
+const CHART_OPTIONS = {
   layout: {
     background: { type: ColorType.Solid, color: '#131722' },
     textColor: '#d1d4dc',
@@ -61,12 +79,12 @@ export function ChartWidget({ data, symbol, showRSI, smaPeriod, emaPeriod }: Cha
   const emaSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const rsiSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
 
-  // Initialize main chart
+  // Initialize main chart once
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
     const chart = createChart(chartContainerRef.current, {
-      ...DARK_CHART_OPTIONS,
+      ...CHART_OPTIONS,
       width: chartContainerRef.current.clientWidth,
       height: chartContainerRef.current.clientHeight,
     });
@@ -93,20 +111,18 @@ export function ChartWidget({ data, symbol, showRSI, smaPeriod, emaPeriod }: Cha
     candleSeriesRef.current = candleSeries;
     volumeSeriesRef.current = volSeries;
 
-    const handleResize = () => {
+    const ro = new ResizeObserver(() => {
       if (chartContainerRef.current) {
         chart.applyOptions({
           width: chartContainerRef.current.clientWidth,
           height: chartContainerRef.current.clientHeight,
         });
       }
-    };
-
-    const resizeObserver = new ResizeObserver(handleResize);
-    resizeObserver.observe(chartContainerRef.current);
+    });
+    ro.observe(chartContainerRef.current);
 
     return () => {
-      resizeObserver.disconnect();
+      ro.disconnect();
       chart.remove();
       mainChartRef.current = null;
       candleSeriesRef.current = null;
@@ -116,18 +132,15 @@ export function ChartWidget({ data, symbol, showRSI, smaPeriod, emaPeriod }: Cha
     };
   }, []);
 
-  // Initialize / destroy RSI chart
+  // RSI sub-chart: create/destroy when showRSI toggles
   useEffect(() => {
-    if (!showRSI || !rsiContainerRef.current || !mainChartRef.current) return;
+    if (!showRSI || !rsiContainerRef.current) return;
 
     const rsiChart = createChart(rsiContainerRef.current, {
-      ...DARK_CHART_OPTIONS,
+      ...CHART_OPTIONS,
       width: rsiContainerRef.current.clientWidth,
       height: rsiContainerRef.current.clientHeight,
-      timeScale: {
-        ...DARK_CHART_OPTIONS.timeScale,
-        visible: false,
-      },
+      timeScale: { ...CHART_OPTIONS.timeScale, visible: false },
     });
 
     const rsiLine = rsiChart.addSeries(LineSeries, {
@@ -136,123 +149,166 @@ export function ChartWidget({ data, symbol, showRSI, smaPeriod, emaPeriod }: Cha
       priceLineVisible: false,
     });
 
-    rsiLine.createPriceLine({ price: 70, color: '#787b86', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'OB' });
-    rsiLine.createPriceLine({ price: 30, color: '#787b86', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'OS' });
+    try {
+      rsiLine.createPriceLine({ price: 70, color: '#787b86', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'OB' });
+      rsiLine.createPriceLine({ price: 30, color: '#787b86', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'OS' });
+    } catch (_) { /* ignore */ }
 
     rsiChartRef.current = rsiChart;
     rsiSeriesRef.current = rsiLine;
 
-    const mainTS = mainChartRef.current.timeScale();
-    const rsiTS = rsiChart.timeScale();
+    // Sync scroll with main chart
+    const mainChart = mainChartRef.current;
+    let syncMain: ((r: any) => void) | null = null;
+    let syncRsi: ((r: any) => void) | null = null;
 
-    const syncMain = (range: any) => { if (range) rsiTS.setVisibleLogicalRange(range); };
-    const syncRsi = (range: any) => { if (range) mainTS.setVisibleLogicalRange(range); };
-
-    mainTS.subscribeVisibleLogicalRangeChange(syncMain);
-    rsiTS.subscribeVisibleLogicalRangeChange(syncRsi);
+    if (mainChart) {
+      const mainTS = mainChart.timeScale();
+      const rsiTS = rsiChart.timeScale();
+      syncMain = (r: any) => { try { if (r) rsiTS.setVisibleLogicalRange(r); } catch (_) {} };
+      syncRsi = (r: any) => { try { if (r) mainTS.setVisibleLogicalRange(r); } catch (_) {} };
+      mainTS.subscribeVisibleLogicalRangeChange(syncMain);
+      rsiTS.subscribeVisibleLogicalRangeChange(syncRsi);
+    }
 
     const ro = new ResizeObserver(() => {
       if (rsiContainerRef.current) {
-        rsiChart.applyOptions({ width: rsiContainerRef.current.clientWidth, height: rsiContainerRef.current.clientHeight });
+        rsiChart.applyOptions({
+          width: rsiContainerRef.current.clientWidth,
+          height: rsiContainerRef.current.clientHeight,
+        });
       }
     });
     if (rsiContainerRef.current) ro.observe(rsiContainerRef.current);
 
     return () => {
       ro.disconnect();
-      mainTS.unsubscribeVisibleLogicalRangeChange(syncMain);
-      rsiTS.unsubscribeVisibleLogicalRangeChange(syncRsi);
+      if (mainChart && syncMain && syncRsi) {
+        try {
+          mainChart.timeScale().unsubscribeVisibleLogicalRangeChange(syncMain);
+          rsiChart.timeScale().unsubscribeVisibleLogicalRangeChange(syncRsi);
+        } catch (_) {}
+      }
       rsiChart.remove();
       rsiChartRef.current = null;
       rsiSeriesRef.current = null;
     };
   }, [showRSI]);
 
-  // Update data on chart
+  // Update chart data whenever bars / indicator settings change
   useEffect(() => {
     const chart = mainChartRef.current;
     const candleSeries = candleSeriesRef.current;
     const volSeries = volumeSeriesRef.current;
     if (!chart || !candleSeries || !volSeries || !data.length) return;
 
-    const sorted = [...data].sort((a, b) => new Date(a.t).getTime() - new Date(b.t).getTime());
+    // Sanitize: sort ascending + deduplicate timestamps
+    const bars = sanitizeBars(data);
+    if (!bars.length) return;
 
-    const candleData = sorted.map(b => ({
-      time: normalizeTime(b.t),
-      open: b.o,
-      high: b.h,
-      low: b.l,
-      close: b.c,
-    }));
+    try {
+      candleSeries.setData(
+        bars.map((b) => ({
+          time: normalizeTime(b.t),
+          open: b.o,
+          high: b.h,
+          low: b.l,
+          close: b.c,
+        }))
+      );
+    } catch (e) {
+      console.warn('ChartWidget: candleSeries.setData failed', e);
+      return;
+    }
 
-    const volData = sorted.map(b => ({
-      time: normalizeTime(b.t),
-      value: b.v,
-      color: b.c >= b.o ? 'rgba(38,166,154,0.5)' : 'rgba(239,83,80,0.5)',
-    }));
+    try {
+      volSeries.setData(
+        bars.map((b) => ({
+          time: normalizeTime(b.t),
+          value: b.v,
+          color: b.c >= b.o ? 'rgba(38,166,154,0.5)' : 'rgba(239,83,80,0.5)',
+        }))
+      );
+    } catch (e) {
+      console.warn('ChartWidget: volSeries.setData failed', e);
+    }
 
-    candleSeries.setData(candleData);
-    volSeries.setData(volData);
-
-    // SMA
+    // SMA overlay
     if (smaPeriod) {
-      if (!smaSeriesRef.current) {
-        smaSeriesRef.current = chart.addSeries(LineSeries, {
-          color: '#2962ff',
-          lineWidth: 2,
-          title: `SMA ${smaPeriod}`,
-          priceLineVisible: false,
-        });
+      try {
+        if (!smaSeriesRef.current) {
+          smaSeriesRef.current = chart.addSeries(LineSeries, {
+            color: '#2962ff',
+            lineWidth: 2,
+            title: `SMA ${smaPeriod}`,
+            priceLineVisible: false,
+          });
+        }
+        smaSeriesRef.current.setData(
+          calculateSMA(bars, smaPeriod).map((d) => ({
+            time: normalizeTime(d.time as string),
+            value: d.value,
+          }))
+        );
+      } catch (e) {
+        console.warn('ChartWidget: SMA setData failed', e);
       }
-      const smaData = calculateSMA(sorted, smaPeriod).map(d => ({
-        time: normalizeTime(d.time as string),
-        value: d.value,
-      }));
-      smaSeriesRef.current.setData(smaData);
     } else if (smaSeriesRef.current) {
-      chart.removeSeries(smaSeriesRef.current);
+      try { chart.removeSeries(smaSeriesRef.current); } catch (_) {}
       smaSeriesRef.current = null;
     }
 
-    // EMA
+    // EMA overlay
     if (emaPeriod) {
-      if (!emaSeriesRef.current) {
-        emaSeriesRef.current = chart.addSeries(LineSeries, {
-          color: '#ff9800',
-          lineWidth: 2,
-          title: `EMA ${emaPeriod}`,
-          priceLineVisible: false,
-        });
+      try {
+        if (!emaSeriesRef.current) {
+          emaSeriesRef.current = chart.addSeries(LineSeries, {
+            color: '#ff9800',
+            lineWidth: 2,
+            title: `EMA ${emaPeriod}`,
+            priceLineVisible: false,
+          });
+        }
+        emaSeriesRef.current.setData(
+          calculateEMA(bars, emaPeriod).map((d) => ({
+            time: normalizeTime(d.time as string),
+            value: d.value,
+          }))
+        );
+      } catch (e) {
+        console.warn('ChartWidget: EMA setData failed', e);
       }
-      const emaData = calculateEMA(sorted, emaPeriod).map(d => ({
-        time: normalizeTime(d.time as string),
-        value: d.value,
-      }));
-      emaSeriesRef.current.setData(emaData);
     } else if (emaSeriesRef.current) {
-      chart.removeSeries(emaSeriesRef.current);
+      try { chart.removeSeries(emaSeriesRef.current); } catch (_) {}
       emaSeriesRef.current = null;
     }
 
     // RSI
     const rsiSeries = rsiSeriesRef.current;
     if (showRSI && rsiSeries) {
-      const rsiData = calculateRSI(sorted, 14).map(d => ({
-        time: normalizeTime(d.time as string),
-        value: d.value,
-      }));
-      rsiSeries.setData(rsiData);
+      try {
+        rsiSeries.setData(
+          calculateRSI(bars, 14).map((d) => ({
+            time: normalizeTime(d.time as string),
+            value: d.value,
+          }))
+        );
+        if (rsiChartRef.current) rsiChartRef.current.timeScale().fitContent();
+      } catch (e) {
+        console.warn('ChartWidget: RSI setData failed', e);
+      }
     }
 
-    chart.timeScale().fitContent();
-    if (rsiChartRef.current) rsiChartRef.current.timeScale().fitContent();
-  }, [data, showRSI, smaPeriod, emaPeriod, symbol]);
+    try {
+      chart.timeScale().fitContent();
+    } catch (_) {}
+  }, [data, symbol, showRSI, smaPeriod, emaPeriod]);
 
   return (
     <div className="flex flex-col w-full h-full bg-[#131722] rounded-lg overflow-hidden">
       <div
         ref={chartContainerRef}
-        className={`w-full ${showRSI ? 'h-[75%]' : 'h-full'} transition-all duration-300`}
+        className={`w-full transition-all duration-300 ${showRSI ? 'h-[75%]' : 'h-full'}`}
       />
       {showRSI && (
         <div className="w-full h-[25%] border-t border-[#2a2e39] flex flex-col">

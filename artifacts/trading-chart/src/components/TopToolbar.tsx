@@ -104,7 +104,7 @@ export function TopToolbar({
 
         {/* Live Quote Info */}
         {quote && (
-          <div className="flex items-baseline gap-3 pr-4 border-r border-border hidden sm:flex">
+          <div className="hidden sm:flex items-baseline gap-3 pr-4 border-r border-border">
             <span className="text-2xl font-bold tracking-tight text-foreground font-mono">
               {formatPrice(quote.price)}
             </span>
