@@ -24,11 +24,15 @@ router.get("/market/bars", async (req, res) => {
       return;
     }
 
+    const upperSymbol = symbol.toUpperCase();
+    const isCrypto = isCryptoSymbol(upperSymbol);
+
     const params = new URLSearchParams({
       timeframe,
       limit: limit ?? "200",
-      adjustment: "raw",
     });
+    // "adjustment" is a stocks-only parameter — the crypto endpoint rejects it
+    if (!isCrypto) params.set("adjustment", "raw");
 
     if (start) {
       params.set("start", start);
@@ -38,10 +42,6 @@ router.get("/market/bars", async (req, res) => {
     }
     if (end) params.set("end", end);
     if (feed) params.set("feed", feed);
-
-    const upperSymbol = symbol.toUpperCase();
-
-    const isCrypto = isCryptoSymbol(upperSymbol);
 
     let url: string;
     if (isCrypto) {
