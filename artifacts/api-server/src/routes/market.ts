@@ -294,7 +294,7 @@ router.get("/market/news", async (req, res) => {
 
     const params = new URLSearchParams({
       symbols: newsSymbol,
-      limit: "5",
+      limit: "20",
       sort: "DESC",
     });
 
@@ -309,12 +309,26 @@ router.get("/market/news", async (req, res) => {
     }
 
     const data = await response.json() as any;
-    const articles = (data.news ?? []).slice(0, 5).map((a: any) => ({
+    const raw: any[] = data.news ?? [];
+
+    // Fetch a larger pool so we can filter down to the most relevant articles.
+    // Articles tagged with many symbols are broad market roundups, not company-specific news.
+    // Sort by symbol count ascending (fewer symbols = more targeted to this company).
+    const sorted = [...raw].sort((a, b) => {
+      const aLen = (a.symbols ?? []).length;
+      const bLen = (b.symbols ?? []).length;
+      if (aLen !== bLen) return aLen - bLen;
+      // Among equally targeted articles keep newest first
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+
+    const articles = sorted.slice(0, 5).map((a: any) => ({
       id: a.id,
       headline: a.headline,
       source: a.source ?? a.author ?? "",
       url: a.url,
       publishedAt: a.created_at,
+      symbolCount: (a.symbols ?? []).length,
     }));
 
     res.json({ symbol: newsSymbol, articles });
