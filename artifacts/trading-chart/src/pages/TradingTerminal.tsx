@@ -121,9 +121,11 @@ export default function TradingTerminal() {
 
           {!error && barsData && barsData.bars.length > 0 && (
             <div className="flex-1 w-full h-full rounded-xl overflow-hidden shadow-2xl animate-in fade-in duration-300">
+              {/* key forces a clean remount whenever symbol / interval / range changes,
+                  eliminating stale series references that cause lightweight-charts crashes */}
               <ChartWidget
+                key={`${symbol}|${interval}|${selectedRange}`}
                 data={barsData.bars}
-                symbol={symbol}
                 showRSI={showRSI}
                 smaPeriod={smaPeriod}
                 emaPeriod={emaPeriod}
