@@ -144,6 +144,33 @@ router.get("/market/quote", async (req, res) => {
   }
 });
 
+// ── Asset list cache (refreshed once per hour) ──────────────────────────────
+let _assetsCache: any[] | null = null;
+let _assetsCacheTime = 0;
+const ASSETS_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+async function getEquityAssets(): Promise<any[]> {
+  if (_assetsCache && Date.now() - _assetsCacheTime < ASSETS_TTL_MS) {
+    return _assetsCache;
+  }
+  // Try paper-api first, then live; both accept the same key/secret pair
+  const urls = [
+    "https://paper-api.alpaca.markets/v2/assets?status=active&asset_class=us_equity",
+    "https://api.alpaca.markets/v2/assets?status=active&asset_class=us_equity",
+  ];
+  for (const url of urls) {
+    try {
+      const r = await fetch(url, { headers: alpacaHeaders() });
+      if (r.ok) {
+        _assetsCache = (await r.json()) as any[];
+        _assetsCacheTime = Date.now();
+        return _assetsCache;
+      }
+    } catch { /* try next */ }
+  }
+  return _assetsCache ?? []; // return stale cache if both fail
+}
+
 router.get("/market/search", async (req, res) => {
   try {
     const { query } = req.query as Record<string, string>;
@@ -155,43 +182,62 @@ router.get("/market/search", async (req, res) => {
 
     const upperQuery = query.toUpperCase();
 
-    const stocksUrl = `https://broker-api.alpaca.markets/v1/assets?status=active&asset_class=us_equity`;
-
-    let stockResults: any[] = [];
-    try {
-      const response = await fetch(stocksUrl, { headers: alpacaHeaders() });
-      if (response.ok) {
-        const assets = await response.json() as any[];
-        stockResults = assets
-          .filter(
-            (a: any) =>
-              a.tradable &&
-              (a.symbol.startsWith(upperQuery) ||
-                (a.name && a.name.toUpperCase().includes(query.toUpperCase())))
-          )
-          .slice(0, 8)
-          .map((a: any) => ({
-            symbol: a.symbol,
-            name: a.name ?? a.symbol,
-            exchange: a.exchange ?? "US",
-            type: "stock",
-          }));
-      }
-    } catch {
-      req.log.warn("Failed to fetch stock assets from broker API");
-    }
-
+    // ── 1. Crypto matches from hard-coded list ──────────────────────────────
     const cryptoMatches = POPULAR_CRYPTO.filter(
       (c) =>
         c.symbol.includes(upperQuery) ||
-        c.name.toUpperCase().includes(query.toUpperCase())
+        c.name.toUpperCase().includes(upperQuery)
     ).slice(0, 4);
+
+    // ── 2. Equity matches from cached assets list ───────────────────────────
+    const assets = await getEquityAssets();
+    const stockResults: any[] = assets
+      .filter(
+        (a: any) =>
+          a.tradable &&
+          (a.symbol.startsWith(upperQuery) ||
+            (a.name && a.name.toUpperCase().includes(upperQuery)))
+      )
+      // Exact symbol matches first
+      .sort((a: any, b: any) => {
+        const aExact = a.symbol === upperQuery ? 0 : a.symbol.startsWith(upperQuery) ? 1 : 2;
+        const bExact = b.symbol === upperQuery ? 0 : b.symbol.startsWith(upperQuery) ? 1 : 2;
+        return aExact - bExact;
+      })
+      .slice(0, 8)
+      .map((a: any) => ({
+        symbol: a.symbol,
+        name: a.name ?? a.symbol,
+        exchange: a.exchange ?? "US",
+        type: "stock",
+      }));
+
+    // ── 3. If asset cache is still loading, try a direct exact-symbol lookup ─
+    if (assets.length === 0) {
+      for (const base of ["https://paper-api.alpaca.markets", "https://api.alpaca.markets"]) {
+        try {
+          const r = await fetch(`${base}/v2/assets/${encodeURIComponent(upperQuery)}`, {
+            headers: alpacaHeaders(),
+          });
+          if (r.ok) {
+            const a = await r.json() as any;
+            if (a.tradable) {
+              stockResults.push({
+                symbol: a.symbol,
+                name: a.name ?? a.symbol,
+                exchange: a.exchange ?? "US",
+                type: "stock",
+              });
+            }
+            break;
+          }
+        } catch { /* ignore */ }
+      }
+    }
 
     const results = [
       ...cryptoMatches,
-      ...stockResults.filter(
-        (s) => !cryptoMatches.some((c) => c.symbol === s.symbol)
-      ),
+      ...stockResults.filter((s) => !cryptoMatches.some((c) => c.symbol === s.symbol)),
     ].slice(0, 12);
 
     res.json({ results });
