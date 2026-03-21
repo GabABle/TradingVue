@@ -2,11 +2,11 @@ import { useEffect, useState, useCallback } from "react";
 import { Newspaper, ExternalLink, RefreshCw, AlertCircle } from "lucide-react";
 
 interface NewsArticle {
-  id: number;
+  id: string | number;
   headline: string;
   source: string;
   url: string;
-  publishedAt: string;
+  publishedAt: string | null;
 }
 
 interface NewsPanelProps {

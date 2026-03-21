@@ -274,6 +274,39 @@ router.get("/market/search", async (req, res) => {
   }
 });
 
+// ── Yahoo Finance news cache (5-minute TTL per symbol) ──────────────────────
+const _newsCache = new Map<string, { articles: any[]; ts: number }>();
+const NEWS_TTL_MS = 5 * 60 * 1000;
+
+async function fetchYahooNews(ticker: string): Promise<any[]> {
+  const cached = _newsCache.get(ticker);
+  if (cached && Date.now() - cached.ts < NEWS_TTL_MS) return cached.articles;
+
+  const params = new URLSearchParams({ q: ticker, newsCount: "10", quotesCount: "0" });
+  const headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://finance.yahoo.com/",
+    "Origin": "https://finance.yahoo.com",
+  };
+
+  // Try query2 first, then query1 as fallback
+  for (const host of ["query2", "query1"]) {
+    const url = `https://${host}.finance.yahoo.com/v1/finance/search?${params.toString()}`;
+    try {
+      const r = await fetch(url, { headers });
+      if (r.ok) {
+        const data = await r.json() as any;
+        const articles = data.news ?? [];
+        _newsCache.set(ticker, { articles, ts: Date.now() });
+        return articles;
+      }
+    } catch { /* try next host */ }
+  }
+  return _newsCache.get(ticker)?.articles ?? []; // return stale cache if both fail
+}
+
 router.get("/market/news", async (req, res) => {
   try {
     const { symbol } = req.query as Record<string, string>;
@@ -283,57 +316,75 @@ router.get("/market/news", async (req, res) => {
       return;
     }
 
-    // Normalize: crypto symbols like BTCUSD → BTC, ETH/USD → ETH; stocks stay as-is
-    let newsSymbol = symbol.toUpperCase();
-    if (newsSymbol.includes("/")) {
-      newsSymbol = newsSymbol.split("/")[0];
-    } else if (isCryptoSymbol(newsSymbol)) {
-      const base = newsSymbol.replace(/USD(T|C)?$/, "").replace(/USD$/, "");
-      if (base.length > 0) newsSymbol = base;
+    const upperSymbol = symbol.toUpperCase();
+    const isCrypto = isCryptoSymbol(upperSymbol);
+
+    // For crypto, search by human name (e.g. "Bitcoin") — Yahoo Finance search doesn't
+    // understand "BTC-USD" as a news query.  For stocks, the ticker works well.
+    let searchQuery: string;
+    let yahooTicker: string;
+
+    if (upperSymbol.includes("/")) {
+      // e.g. ETH/USD → ETH-USD
+      yahooTicker = upperSymbol.replace("/", "-");
+      const cryptoEntry = POPULAR_CRYPTO.find(c => c.alpacaSymbol === upperSymbol);
+      searchQuery = cryptoEntry?.name ?? upperSymbol.split("/")[0];
+    } else if (isCrypto) {
+      // e.g. BTCUSD → BTC-USD, search by name
+      const base = upperSymbol.replace(/USD(T|C)?$/, "").replace(/USD$/, "");
+      yahooTicker = `${base}-USD`;
+      const cryptoEntry = POPULAR_CRYPTO.find(c => c.symbol === upperSymbol || c.alpacaSymbol === `${base}/USD`);
+      searchQuery = cryptoEntry?.name ?? base;
+    } else {
+      yahooTicker = upperSymbol;
+      searchQuery = upperSymbol;
     }
 
-    const params = new URLSearchParams({
-      symbols: newsSymbol,
-      limit: "20",
-      sort: "DESC",
-    });
+    const raw = await fetchYahooNews(searchQuery);
 
-    const url = `https://data.alpaca.markets/v1beta1/news?${params.toString()}`;
-    const response = await fetch(url, { headers: alpacaHeaders() });
+    // Relevance scoring for stocks:
+    //   tier 0 — ticker is sole related ticker (most specific)
+    //   tier 1 — ticker is listed first among 2–3 others (primary subject)
+    //   tier 2 — ticker is listed but not primary, or article has many symbols
+    // For crypto: name-search already returns relevant articles; sort by recency.
+    const scored = [...raw]
+      .filter((a: any) => a.type === "STORY" || a.type === "VIDEO")
+      .map((a: any) => {
+        const tickers: string[] = a.relatedTickers ?? [];
+        let tier = 3; // default: not related
+        if (!isCrypto) {
+          const idx = tickers.indexOf(yahooTicker);
+          if (idx === -1) {
+            tier = 3;
+          } else if (tickers.length === 1) {
+            tier = 0; // sole ticker — most targeted
+          } else if (idx === 0 && tickers.length <= 3) {
+            tier = 1; // primary ticker, small symbol set
+          } else {
+            tier = 2; // secondary mention or large symbol set
+          }
+        }
+        return { ...a, _tier: tier };
+      })
+      .filter((a: any) => isCrypto || a._tier < 3) // for stocks, drop articles with no ticker match
+      .sort((a, b) => {
+        if (a._tier !== b._tier) return a._tier - b._tier;
+        return (b.providerPublishTime ?? 0) - (a.providerPublishTime ?? 0);
+      });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      req.log.error({ status: response.status, error: errorText }, "Alpaca news error");
-      res.status(response.status).json({ error: "Alpaca API Error", message: errorText });
-      return;
-    }
-
-    const data = await response.json() as any;
-    const raw: any[] = data.news ?? [];
-
-    // Fetch a larger pool so we can filter down to the most relevant articles.
-    // Articles tagged with many symbols are broad market roundups, not company-specific news.
-    // Sort by symbol count ascending (fewer symbols = more targeted to this company).
-    const sorted = [...raw].sort((a, b) => {
-      const aLen = (a.symbols ?? []).length;
-      const bLen = (b.symbols ?? []).length;
-      if (aLen !== bLen) return aLen - bLen;
-      // Among equally targeted articles keep newest first
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-    });
-
-    const articles = sorted.slice(0, 5).map((a: any) => ({
-      id: a.id,
-      headline: a.headline,
-      source: a.source ?? a.author ?? "",
-      url: a.url,
-      publishedAt: a.created_at,
-      symbolCount: (a.symbols ?? []).length,
+    const articles = scored.slice(0, 5).map((a: any) => ({
+      id: a.uuid,
+      headline: a.title,
+      source: a.publisher ?? "",
+      url: a.link,
+      publishedAt: a.providerPublishTime
+        ? new Date(a.providerPublishTime * 1000).toISOString()
+        : null,
     }));
 
-    res.json({ symbol: newsSymbol, articles });
+    res.json({ symbol: yahooTicker, articles });
   } catch (err) {
-    req.log.error({ err }, "Error fetching news");
+    req.log.error({ err }, "Error fetching Yahoo Finance news");
     res.status(500).json({ error: "Internal Server Error", message: "Failed to fetch news" });
   }
 });
