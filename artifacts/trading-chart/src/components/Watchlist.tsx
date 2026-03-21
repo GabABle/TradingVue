@@ -9,6 +9,7 @@ interface WatchlistProps {
   onAdd: (symbol: string) => void;
   onRemove: (symbol: string) => void;
   onSearchOpen: (initial?: string) => void;
+  fullHeight?: boolean;
 }
 
 const DEFAULT_SYMBOLS = ["AAPL", "MSFT", "TSLA", "GOOGL", "NVDA", "AMZN", "BTCUSD", "ETHUSD"];
@@ -89,9 +90,10 @@ export function Watchlist({
   onAdd,
   onRemove,
   onSearchOpen,
+  fullHeight,
 }: WatchlistProps) {
   return (
-    <div className="w-52 shrink-0 flex flex-col border-l border-[#2a2e39] bg-[#131722] h-full overflow-hidden">
+    <div className={`flex flex-col bg-[#131722] overflow-hidden ${fullHeight ? "h-full" : "w-52 shrink-0 border-l border-[#2a2e39] h-full"}`}>
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-3 border-b border-[#2a2e39]">
         <div className="flex items-center gap-1.5">

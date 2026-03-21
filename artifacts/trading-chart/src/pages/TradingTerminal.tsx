@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useGetBars } from "@workspace/api-client-react";
 import { ChartWidget } from "@/components/ChartWidget";
 import { TopToolbar } from "@/components/TopToolbar";
-import { Watchlist } from "@/components/Watchlist";
+import { RightPanel } from "@/components/RightPanel";
 import { SymbolSearch } from "@/components/SymbolSearch";
 import {
   type RangeKey,
@@ -234,13 +234,14 @@ export default function TradingTerminal() {
           )}
         </main>
 
-        <Watchlist
+        <RightPanel
           symbols={watchlist}
           activeSymbol={symbol}
           onSelect={setSymbol}
           onAdd={(sym) => setWatchlist((p) => (p.includes(sym) ? p : [...p, sym]))}
           onRemove={(sym) => setWatchlist((p) => p.filter((s) => s !== sym))}
           onSearchOpen={openSearch}
+          chatContext={{ symbol, range: selectedRange, interval, showRSI, showStoch, smaPeriod, emaPeriod }}
         />
       </div>
 
