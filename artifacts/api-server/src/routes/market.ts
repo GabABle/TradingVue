@@ -274,6 +274,56 @@ router.get("/market/search", async (req, res) => {
   }
 });
 
+router.get("/market/news", async (req, res) => {
+  try {
+    const { symbol } = req.query as Record<string, string>;
+
+    if (!symbol) {
+      res.status(400).json({ error: "Bad Request", message: "symbol is required" });
+      return;
+    }
+
+    // Normalize: crypto symbols like BTCUSD → BTC, ETH/USD → ETH; stocks stay as-is
+    let newsSymbol = symbol.toUpperCase();
+    if (newsSymbol.includes("/")) {
+      newsSymbol = newsSymbol.split("/")[0];
+    } else if (isCryptoSymbol(newsSymbol)) {
+      const base = newsSymbol.replace(/USD(T|C)?$/, "").replace(/USD$/, "");
+      if (base.length > 0) newsSymbol = base;
+    }
+
+    const params = new URLSearchParams({
+      symbols: newsSymbol,
+      limit: "5",
+      sort: "DESC",
+    });
+
+    const url = `https://data.alpaca.markets/v1beta1/news?${params.toString()}`;
+    const response = await fetch(url, { headers: alpacaHeaders() });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      req.log.error({ status: response.status, error: errorText }, "Alpaca news error");
+      res.status(response.status).json({ error: "Alpaca API Error", message: errorText });
+      return;
+    }
+
+    const data = await response.json() as any;
+    const articles = (data.news ?? []).slice(0, 5).map((a: any) => ({
+      id: a.id,
+      headline: a.headline,
+      source: a.source ?? a.author ?? "",
+      url: a.url,
+      publishedAt: a.created_at,
+    }));
+
+    res.json({ symbol: newsSymbol, articles });
+  } catch (err) {
+    req.log.error({ err }, "Error fetching news");
+    res.status(500).json({ error: "Internal Server Error", message: "Failed to fetch news" });
+  }
+});
+
 function getDefaultStart(timeframe: string): string {
   const now = new Date();
   let daysBack = 365;

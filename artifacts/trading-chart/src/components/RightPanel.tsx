@@ -1,10 +1,11 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { Watchlist } from "@/components/Watchlist";
+import { NewsPanel } from "@/components/NewsPanel";
 import { ChatPanel } from "@/components/ChatPanel";
 
-const MIN_WIDTH = 180;
-const MAX_WIDTH = 520;
-const DEFAULT_WIDTH = 208; // w-52 = 13rem = 208px
+const MIN_WIDTH    = 180;
+const MAX_WIDTH    = 520;
+const DEFAULT_WIDTH = 208;
 const STORAGE_KEY_WIDTH = "tradingTerminalRightPanelWidth";
 
 interface RightPanelProps {
@@ -36,6 +37,8 @@ function loadWidth(): number {
   return DEFAULT_WIDTH;
 }
 
+type DragTarget = "panel" | "news" | "chat" | null;
+
 export function RightPanel({
   symbols,
   activeSymbol,
@@ -45,62 +48,92 @@ export function RightPanel({
   onSearchOpen,
   chatContext,
 }: RightPanelProps) {
-  const [width, setWidth] = useState<number>(loadWidth);
-  const [chatHeight, setChatHeight] = useState<number>(280);
-  const draggingPanel = useRef(false);
-  const draggingChat  = useRef(false);
-  const startX   = useRef(0);
-  const startW   = useRef(0);
-  const startY   = useRef(0);
-  const startH   = useRef(0);
+  const [width, setWidth]           = useState<number>(loadWidth);
+  const [newsHeight, setNewsHeight]  = useState<number>(180);
+  const [chatHeight, setChatHeight]  = useState<number>(240);
+
+  const dragging  = useRef<DragTarget>(null);
+  const startX    = useRef(0);
+  const startY    = useRef(0);
+  const startW    = useRef(0);
+  const startNews = useRef(0);
+  const startChat = useRef(0);
   const panelRef  = useRef<HTMLDivElement>(null);
 
-  // ── Persist width ──
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY_WIDTH, String(width)); } catch { /* ignore */ }
   }, [width]);
 
-  // ── Left-edge drag for panel width ──
   const onPanelMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    draggingPanel.current = true;
-    startX.current = e.clientX;
-    startW.current = width;
+    dragging.current = "panel";
+    startX.current   = e.clientX;
+    startW.current   = width;
   }, [width]);
 
-  // ── Top-edge drag for chat height ──
-  const onChatMouseDown = useCallback((e: React.MouseEvent) => {
+  const onNewsResizeMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    draggingChat.current = true;
-    startY.current = e.clientY;
-    startH.current = chatHeight;
+    dragging.current   = "news";
+    startY.current     = e.clientY;
+    startNews.current  = newsHeight;
+  }, [newsHeight]);
+
+  const onChatResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragging.current   = "chat";
+    startY.current     = e.clientY;
+    startChat.current  = chatHeight;
   }, [chatHeight]);
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
-      if (draggingPanel.current) {
+      const target = dragging.current;
+      if (!target) return;
+
+      if (target === "panel") {
         const delta = startX.current - e.clientX;
         const next  = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startW.current + delta));
         setWidth(next);
       }
-      if (draggingChat.current) {
+
+      if (target === "news") {
         const panelH = panelRef.current?.offsetHeight ?? 600;
         const delta  = startY.current - e.clientY;
-        const next   = Math.min(panelH - 120, Math.max(120, startH.current + delta));
+        const next   = Math.min(panelH - 240, Math.max(80, startNews.current + delta));
+        setNewsHeight(next);
+      }
+
+      if (target === "chat") {
+        const panelH = panelRef.current?.offsetHeight ?? 600;
+        const delta  = startY.current - e.clientY;
+        const next   = Math.min(panelH - 200, Math.max(120, startChat.current + delta));
         setChatHeight(next);
       }
     };
-    const onUp = () => {
-      draggingPanel.current = false;
-      draggingChat.current  = false;
-    };
+    const onUp = () => { dragging.current = null; };
     window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    window.addEventListener("mouseup",   onUp);
     return () => {
       window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("mouseup",   onUp);
     };
   }, []);
+
+  const ResizeHandle = ({
+    onMouseDown,
+    title,
+  }: {
+    onMouseDown: (e: React.MouseEvent) => void;
+    title: string;
+  }) => (
+    <div
+      onMouseDown={onMouseDown}
+      title={title}
+      className="relative shrink-0 h-1.5 cursor-row-resize flex items-center justify-center group z-10 bg-[#0d1017] border-y border-[#2a2e39] hover:bg-[#2962ff]/15 transition-colors"
+    >
+      <div className="w-8 h-0.5 rounded-full bg-[#2a2e39] group-hover:bg-[#2962ff]/50 transition-colors" />
+    </div>
+  );
 
   return (
     <div
@@ -117,7 +150,7 @@ export function RightPanel({
         <div className="w-full h-full group-hover:bg-[#2962ff]/40 transition-colors" />
       </div>
 
-      {/* ── Watchlist (takes remaining height above chat) ── */}
+      {/* ── Watchlist (takes remaining height) ── */}
       <div className="flex-1 min-h-0 overflow-hidden">
         <Watchlist
           symbols={symbols}
@@ -130,14 +163,16 @@ export function RightPanel({
         />
       </div>
 
-      {/* ── Chat resize handle ── */}
-      <div
-        onMouseDown={onChatMouseDown}
-        className="relative shrink-0 h-1.5 cursor-row-resize flex items-center justify-center group z-10 bg-[#0f131d] border-y border-[#2a2e39] hover:bg-[#2962ff]/20 transition-colors"
-        title="Drag to resize chat"
-      >
-        <div className="w-8 h-0.5 rounded-full bg-[#2a2e39] group-hover:bg-[#2962ff]/50 transition-colors" />
+      {/* ── News resize handle ── */}
+      <ResizeHandle onMouseDown={onNewsResizeMouseDown} title="Drag to resize news" />
+
+      {/* ── News panel ── */}
+      <div className="shrink-0 overflow-hidden" style={{ height: newsHeight }}>
+        <NewsPanel symbol={chatContext?.symbol ?? activeSymbol} />
       </div>
+
+      {/* ── Chat resize handle ── */}
+      <ResizeHandle onMouseDown={onChatResizeMouseDown} title="Drag to resize chat" />
 
       {/* ── Chat panel ── */}
       <div className="shrink-0 overflow-hidden" style={{ height: chatHeight }}>
