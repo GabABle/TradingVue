@@ -5,7 +5,10 @@
  * Trading Chart API - Alpaca market data proxy
  * OpenAPI spec version: 0.1.0
  */
+import type { Bar } from "./bar";
 
-export interface HealthStatus {
-  status: string;
+export interface BarsResponse {
+  symbol: string;
+  bars: Bar[];
+  nextPageToken?: string | null;
 }

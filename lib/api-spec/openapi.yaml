@@ -1,15 +1,16 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Trading Chart API - Alpaca market data proxy
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: market
+    description: Market data from Alpaca
 paths:
   /healthz:
     get:
@@ -24,6 +25,121 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /market/bars:
+    get:
+      operationId: getBars
+      tags: [market]
+      summary: Get candlestick bars
+      description: Fetch OHLCV candlestick bars for a symbol from Alpaca
+      parameters:
+        - name: symbol
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Stock or crypto ticker symbol (e.g. AAPL, BTCUSD)
+        - name: timeframe
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [1Min, 5Min, 15Min, 30Min, 1Hour, 4Hour, 1Day, 1Week]
+          description: Bar timeframe
+        - name: start
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Start datetime (ISO 8601)
+        - name: end
+          in: query
+          required: false
+          schema:
+            type: string
+          description: End datetime (ISO 8601)
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 200
+          description: Number of bars to return
+        - name: feed
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [iex, sip, otc]
+          description: Data feed (sip requires premium)
+      responses:
+        "200":
+          description: Array of OHLCV bars
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BarsResponse"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /market/search:
+    get:
+      operationId: searchSymbols
+      tags: [market]
+      summary: Search for symbols
+      description: Search for stock and crypto symbols
+      parameters:
+        - name: query
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Search query string
+      responses:
+        "200":
+          description: List of matching symbols
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResponse"
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /market/quote:
+    get:
+      operationId: getQuote
+      tags: [market]
+      summary: Get latest quote for a symbol
+      parameters:
+        - name: symbol
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Latest quote
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuoteResponse"
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +149,111 @@ components:
           type: string
       required:
         - status
-
+    Bar:
+      type: object
+      properties:
+        t:
+          type: string
+          description: Timestamp (ISO 8601)
+        o:
+          type: number
+          description: Open price
+        h:
+          type: number
+          description: High price
+        l:
+          type: number
+          description: Low price
+        c:
+          type: number
+          description: Close price
+        v:
+          type: number
+          description: Volume
+        vw:
+          type: number
+          description: Volume weighted average price
+      required:
+        - t
+        - o
+        - h
+        - l
+        - c
+        - v
+    BarsResponse:
+      type: object
+      properties:
+        symbol:
+          type: string
+        bars:
+          type: array
+          items:
+            $ref: "#/components/schemas/Bar"
+        nextPageToken:
+          type: string
+          nullable: true
+      required:
+        - symbol
+        - bars
+    SymbolInfo:
+      type: object
+      properties:
+        symbol:
+          type: string
+        name:
+          type: string
+        exchange:
+          type: string
+        type:
+          type: string
+      required:
+        - symbol
+        - name
+        - exchange
+        - type
+    SearchResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/SymbolInfo"
+      required:
+        - results
+    QuoteResponse:
+      type: object
+      properties:
+        symbol:
+          type: string
+        price:
+          type: number
+        change:
+          type: number
+        changePercent:
+          type: number
+        open:
+          type: number
+        high:
+          type: number
+        low:
+          type: number
+        volume:
+          type: number
+        timestamp:
+          type: string
+      required:
+        - symbol
+        - price
+        - change
+        - changePercent
+        - timestamp
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      required:
+        - error
+        - message

@@ -1,0 +1,14 @@
+packages:
+  "lightweight-charts": "The official TradingView charting library for rendering candlestick charts and indicators"
+  "use-debounce": "Hook for debouncing search input to prevent API spam"
+  "date-fns": "For handling and formatting chart timestamps"
+  "clsx": "Utility for constructing className strings conditionally"
+  "tailwind-merge": "Utility to cleanly merge tailwind classes"
+  "lucide-react": "Beautiful icons for the UI"
+
+images: []
+
+notes:
+  - "The app uses lightweight-charts which requires strict timestamp ordering and specific data formats."
+  - "RSI and Moving Average calculations are done client-side based on the fetched bar data."
+  - "The API endpoints are proxied to Alpaca via the backend."

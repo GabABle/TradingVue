@@ -5,7 +5,8 @@
  * Trading Chart API - Alpaca market data proxy
  * OpenAPI spec version: 0.1.0
  */
+import type { SymbolInfo } from "./symbolInfo";
 
-export interface HealthStatus {
-  status: string;
+export interface SearchResponse {
+  results: SymbolInfo[];
 }
