@@ -98,46 +98,73 @@ router.get("/market/quote", async (req, res) => {
     const upperSymbol = symbol.toUpperCase();
     const isCrypto = isCryptoSymbol(upperSymbol);
 
-    let latestBar: any = null;
-
     if (isCrypto) {
+      // ── Crypto: use v1beta3 snapshot which includes prevDailyBar ────────────
       const cryptoSymbol = normalizeCryptoSymbol(upperSymbol);
-      const url = `https://data.alpaca.markets/v1beta3/crypto/us/latest/bars?symbols=${cryptoSymbol}`;
+      const url = `https://data.alpaca.markets/v1beta3/crypto/us/snapshots?symbols=${encodeURIComponent(cryptoSymbol)}`;
       const response = await fetch(url, { headers: alpacaHeaders() });
-      if (response.ok) {
-        const data = await response.json() as any;
-        latestBar = data.bars?.[cryptoSymbol] ?? null;
+
+      if (!response.ok) {
+        res.status(response.status).json({ error: "Not Found", message: `No quote found for ${upperSymbol}` });
+        return;
       }
+
+      const data = await response.json() as any;
+      const snap = data.snapshots?.[cryptoSymbol];
+
+      if (!snap) {
+        res.status(404).json({ error: "Not Found", message: `No quote found for ${upperSymbol}` });
+        return;
+      }
+
+      // Current price: latest trade > daily bar close > prev daily bar close
+      const price = snap.latestTrade?.p ?? snap.dailyBar?.c ?? snap.prevDailyBar?.c ?? 0;
+      const prevClose = snap.prevDailyBar?.c ?? snap.dailyBar?.o ?? price;
+      const change = price - prevClose;
+      const changePercent = prevClose !== 0 ? (change / prevClose) * 100 : 0;
+
+      res.json({
+        symbol: upperSymbol,
+        price,
+        change,
+        changePercent,
+        open:   snap.dailyBar?.o   ?? 0,
+        high:   snap.dailyBar?.h   ?? 0,
+        low:    snap.dailyBar?.l   ?? 0,
+        volume: snap.dailyBar?.v   ?? 0,
+        timestamp: snap.latestTrade?.t ?? snap.dailyBar?.t ?? new Date().toISOString(),
+      });
     } else {
-      const url = `${DATA_BASE_URL}/stocks/${upperSymbol}/bars/latest`;
+      // ── Equity: use snapshot endpoint which includes prevDailyBar ───────────
+      const url = `${DATA_BASE_URL}/stocks/${upperSymbol}/snapshot`;
       const response = await fetch(url, { headers: alpacaHeaders() });
-      if (response.ok) {
-        const data = await response.json() as any;
-        latestBar = data.bar ?? null;
+
+      if (!response.ok) {
+        res.status(response.status).json({ error: "Not Found", message: `No quote found for ${upperSymbol}` });
+        return;
       }
+
+      const snap = await response.json() as any;
+
+      // Current price: latest trade > daily bar close
+      const price = snap.latestTrade?.p ?? snap.dailyBar?.c ?? 0;
+      // Previous close is prevDailyBar.c; fall back to dailyBar open if missing
+      const prevClose = snap.prevDailyBar?.c ?? snap.dailyBar?.o ?? price;
+      const change = price - prevClose;
+      const changePercent = prevClose !== 0 ? (change / prevClose) * 100 : 0;
+
+      res.json({
+        symbol: upperSymbol,
+        price,
+        change,
+        changePercent,
+        open:   snap.dailyBar?.o   ?? 0,
+        high:   snap.dailyBar?.h   ?? 0,
+        low:    snap.dailyBar?.l   ?? 0,
+        volume: snap.dailyBar?.v   ?? 0,
+        timestamp: snap.latestTrade?.t ?? snap.dailyBar?.t ?? new Date().toISOString(),
+      });
     }
-
-    if (!latestBar) {
-      res.status(404).json({ error: "Not Found", message: `No quote found for ${upperSymbol}` });
-      return;
-    }
-
-    const price = latestBar.c ?? 0;
-    const open = latestBar.o ?? 0;
-    const change = price - open;
-    const changePercent = open !== 0 ? (change / open) * 100 : 0;
-
-    res.json({
-      symbol: upperSymbol,
-      price,
-      change,
-      changePercent,
-      open: latestBar.o ?? 0,
-      high: latestBar.h ?? 0,
-      low: latestBar.l ?? 0,
-      volume: latestBar.v ?? 0,
-      timestamp: latestBar.t ?? new Date().toISOString(),
-    });
   } catch (err) {
     req.log.error({ err }, "Error fetching quote");
     res.status(500).json({ error: "Internal Server Error", message: "Failed to fetch quote" });
