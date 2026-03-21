@@ -1,5 +1,11 @@
 import type { Bar } from "@workspace/api-client-react";
 
+export interface StochPoint {
+  time: string;
+  k: number;
+  d: number;
+}
+
 interface IndicatorPoint {
   time: number | string;
   value: number;
@@ -108,6 +114,41 @@ export function calculateRSI(data: Bar[], period: number = 14): IndicatorPoint[]
       time: data[i].t,
       value: currentRsi,
     });
+  }
+
+  return result;
+}
+
+/**
+ * Stochastic Oscillator
+ *   %K = (Close - LowestLow[kPeriod]) / (HighestHigh[kPeriod] - LowestLow[kPeriod]) * 100
+ *   %D = dPeriod-bar SMA of %K  (signal line)
+ */
+export function calculateStochastic(
+  data: Bar[],
+  kPeriod: number = 14,
+  dPeriod: number = 3,
+): StochPoint[] {
+  const result: StochPoint[] = [];
+  if (data.length < kPeriod) return result;
+
+  const rawK: number[] = [];
+  for (let i = kPeriod - 1; i < data.length; i++) {
+    let lowestLow   = data[i].l;
+    let highestHigh = data[i].h;
+    for (let j = 1; j < kPeriod; j++) {
+      if (data[i - j].l < lowestLow)   lowestLow   = data[i - j].l;
+      if (data[i - j].h > highestHigh) highestHigh = data[i - j].h;
+    }
+    const range = highestHigh - lowestLow;
+    rawK.push(range === 0 ? 50 : ((data[i].c - lowestLow) / range) * 100);
+  }
+
+  for (let i = dPeriod - 1; i < rawK.length; i++) {
+    let sum = 0;
+    for (let j = 0; j < dPeriod; j++) sum += rawK[i - j];
+    const dataIdx = kPeriod - 1 + i;
+    result.push({ time: data[dataIdx].t, k: rawK[i], d: sum / dPeriod });
   }
 
   return result;

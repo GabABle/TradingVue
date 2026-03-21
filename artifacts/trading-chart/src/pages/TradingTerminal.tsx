@@ -20,6 +20,7 @@ export default function TradingTerminal() {
   const [selectedRange, setSelectedRange] = useState<RangeKey>("1Y");
   const [interval, setInterval]           = useState<IntervalKey>("1Day");
   const [showRSI, setShowRSI]             = useState(false);
+  const [showStoch, setShowStoch]         = useState(false);
   const [smaPeriod, setSmaPeriod]         = useState<number | null>(null);
   const [emaPeriod, setEmaPeriod]         = useState<number | null>(null);
   const [watchlist, setWatchlist]         = useState<string[]>(DEFAULT_WATCHLIST);
@@ -89,6 +90,8 @@ export default function TradingTerminal() {
         onIntervalChange={handleIntervalChange}
         showRSI={showRSI}
         setShowRSI={setShowRSI}
+        showStoch={showStoch}
+        setShowStoch={setShowStoch}
         smaPeriod={smaPeriod}
         setSmaPeriod={setSmaPeriod}
         emaPeriod={emaPeriod}
@@ -133,6 +136,7 @@ export default function TradingTerminal() {
                 key={`${symbol}|${interval}|${selectedRange}`}
                 data={barsData.bars}
                 showRSI={showRSI}
+                showStoch={showStoch}
                 smaPeriod={smaPeriod}
                 emaPeriod={emaPeriod}
               />

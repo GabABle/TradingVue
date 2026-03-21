@@ -10,11 +10,12 @@ import {
   type Time,
 } from 'lightweight-charts';
 import type { Bar } from "@workspace/api-client-react";
-import { calculateSMA, calculateEMA, calculateRSI } from '@/lib/indicators';
+import { calculateSMA, calculateEMA, calculateRSI, calculateStochastic } from '@/lib/indicators';
 
 interface ChartWidgetProps {
   data: Bar[];
   showRSI: boolean;
+  showStoch: boolean;
   smaPeriod: number | null;
   emaPeriod: number | null;
 }
@@ -27,7 +28,6 @@ function normalizeTime(isoString: string): Time {
   return toEpochSeconds(isoString) as Time;
 }
 
-/** Sort bars ascending by timestamp and deduplicate same-second entries. */
 function sanitizeBars(bars: Bar[]): Bar[] {
   const sorted = [...bars].sort(
     (a, b) => toEpochSeconds(a.t) - toEpochSeconds(b.t)
@@ -41,7 +41,6 @@ function sanitizeBars(bars: Bar[]): Bar[] {
   });
 }
 
-/** Safe wrapper: call fn(), swallow anything lightweight-charts throws (strings, not Errors). */
 function safe(fn: () => void, label = '') {
   try {
     fn();
@@ -70,17 +69,22 @@ const BASE_CHART_OPTIONS = {
   rightPriceScale: { borderColor: '#2a2e39' },
 };
 
-export function ChartWidget({ data, showRSI, smaPeriod, emaPeriod }: ChartWidgetProps) {
+export function ChartWidget({ data, showRSI, showStoch, smaPeriod, emaPeriod }: ChartWidgetProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const rsiContainerRef   = useRef<HTMLDivElement>(null);
+  const stochContainerRef = useRef<HTMLDivElement>(null);
 
   const mainChartRef  = useRef<IChartApi | null>(null);
   const rsiChartRef   = useRef<IChartApi | null>(null);
-  const candleRef     = useRef<ISeriesApi<'Candlestick'> | null>(null);
-  const volumeRef     = useRef<ISeriesApi<'Histogram'> | null>(null);
-  const smaRef        = useRef<ISeriesApi<'Line'> | null>(null);
-  const emaRef        = useRef<ISeriesApi<'Line'> | null>(null);
-  const rsiRef        = useRef<ISeriesApi<'Line'> | null>(null);
+  const stochChartRef = useRef<IChartApi | null>(null);
+
+  const candleRef  = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const volumeRef  = useRef<ISeriesApi<'Histogram'> | null>(null);
+  const smaRef     = useRef<ISeriesApi<'Line'> | null>(null);
+  const emaRef     = useRef<ISeriesApi<'Line'> | null>(null);
+  const rsiRef     = useRef<ISeriesApi<'Line'> | null>(null);
+  const stochKRef  = useRef<ISeriesApi<'Line'> | null>(null);
+  const stochDRef  = useRef<ISeriesApi<'Line'> | null>(null);
 
   // ─── Main chart: init once per mount ────────────────────────────────────────
   useEffect(() => {
@@ -110,7 +114,6 @@ export function ChartWidget({ data, showRSI, smaPeriod, emaPeriod }: ChartWidget
     candleRef.current    = candle;
     volumeRef.current    = volume;
 
-    // ResizeObserver — MUST be in try-catch; chart.applyOptions can throw a raw string
     const ro = new ResizeObserver(() => {
       if (!chartContainerRef.current) return;
       safe(() => chart.applyOptions({
@@ -154,11 +157,9 @@ export function ChartWidget({ data, showRSI, smaPeriod, emaPeriod }: ChartWidget
     rsiChartRef.current = rsiChart;
     rsiRef.current      = rsiLine;
 
-    // Sync scroll with main chart
     const mainChart = mainChartRef.current;
     let syncMain: ((r: any) => void) | null = null;
     let syncRsi:  ((r: any) => void) | null = null;
-
     if (mainChart) {
       syncMain = (r: any) => safe(() => { if (r) rsiChart.timeScale().setVisibleLogicalRange(r); });
       syncRsi  = (r: any) => safe(() => { if (r) mainChart.timeScale().setVisibleLogicalRange(r); });
@@ -166,7 +167,6 @@ export function ChartWidget({ data, showRSI, smaPeriod, emaPeriod }: ChartWidget
       safe(() => rsiChart.timeScale().subscribeVisibleLogicalRangeChange(syncRsi!));
     }
 
-    // ResizeObserver for RSI panel — also wrapped
     const ro = new ResizeObserver(() => {
       if (!rsiContainerRef.current) return;
       safe(() => rsiChart.applyOptions({
@@ -186,7 +186,68 @@ export function ChartWidget({ data, showRSI, smaPeriod, emaPeriod }: ChartWidget
     };
   }, [showRSI]);
 
-  // ─── Data + indicators: runs when data or indicator settings change ──────────
+  // ─── Stochastic sub-chart: create / destroy when toggled ────────────────────
+  useEffect(() => {
+    if (!showStoch || !stochContainerRef.current) return;
+    const el = stochContainerRef.current;
+
+    const stochChart = createChart(el, {
+      ...BASE_CHART_OPTIONS,
+      width: el.clientWidth,
+      height: el.clientHeight,
+      timeScale: { ...BASE_CHART_OPTIONS.timeScale, visible: false },
+    });
+
+    // %K line (teal)
+    const kLine = stochChart.addSeries(LineSeries, {
+      color: '#26c6da', lineWidth: 2, priceLineVisible: false, title: '%K',
+    });
+    // %D signal line (orange)
+    const dLine = stochChart.addSeries(LineSeries, {
+      color: '#ff9800', lineWidth: 1, priceLineVisible: false, title: '%D',
+      lineStyle: 2,
+    });
+    safe(() => {
+      kLine.createPriceLine({ price: 80, color: '#787b86', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'OB' });
+      kLine.createPriceLine({ price: 20, color: '#787b86', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'OS' });
+    }, 'stoch-price-lines');
+
+    stochChartRef.current = stochChart;
+    stochKRef.current     = kLine;
+    stochDRef.current     = dLine;
+
+    // Sync scroll with main chart
+    const mainChart = mainChartRef.current;
+    let syncMain:  ((r: any) => void) | null = null;
+    let syncStoch: ((r: any) => void) | null = null;
+    if (mainChart) {
+      syncMain  = (r: any) => safe(() => { if (r) stochChart.timeScale().setVisibleLogicalRange(r); });
+      syncStoch = (r: any) => safe(() => { if (r) mainChart.timeScale().setVisibleLogicalRange(r); });
+      safe(() => mainChart.timeScale().subscribeVisibleLogicalRangeChange(syncMain!));
+      safe(() => stochChart.timeScale().subscribeVisibleLogicalRangeChange(syncStoch!));
+    }
+
+    const ro = new ResizeObserver(() => {
+      if (!stochContainerRef.current) return;
+      safe(() => stochChart.applyOptions({
+        width: stochContainerRef.current!.clientWidth,
+        height: stochContainerRef.current!.clientHeight,
+      }), 'stoch-resize');
+    });
+    ro.observe(el);
+
+    return () => {
+      ro.disconnect();
+      if (mainChart && syncMain)  safe(() => mainChart.timeScale().unsubscribeVisibleLogicalRangeChange(syncMain!));
+      if (syncStoch)              safe(() => stochChart.timeScale().unsubscribeVisibleLogicalRangeChange(syncStoch!));
+      safe(() => stochChart.remove(), 'stoch-remove');
+      stochChartRef.current = null;
+      stochKRef.current     = null;
+      stochDRef.current     = null;
+    };
+  }, [showStoch]);
+
+  // ─── Data + indicators ───────────────────────────────────────────────────────
   useEffect(() => {
     const chart  = mainChartRef.current;
     const candle = candleRef.current;
@@ -196,7 +257,6 @@ export function ChartWidget({ data, showRSI, smaPeriod, emaPeriod }: ChartWidget
     const bars = sanitizeBars(data);
     if (!bars.length) return;
 
-    // Candle data
     let candleOk = false;
     safe(() => {
       candle.setData(bars.map((b) => ({
@@ -205,9 +265,8 @@ export function ChartWidget({ data, showRSI, smaPeriod, emaPeriod }: ChartWidget
       })));
       candleOk = true;
     }, 'candle-setData');
-    if (!candleOk) return; // chart is in bad state; bail out
+    if (!candleOk) return;
 
-    // Volume data
     safe(() => {
       volume.setData(bars.map((b) => ({
         time: normalizeTime(b.t),
@@ -216,7 +275,7 @@ export function ChartWidget({ data, showRSI, smaPeriod, emaPeriod }: ChartWidget
       })));
     }, 'volume-setData');
 
-    // SMA overlay — always remove & recreate to avoid stale-series state
+    // SMA
     if (smaRef.current) {
       safe(() => chart.removeSeries(smaRef.current!), 'sma-remove');
       smaRef.current = null;
@@ -234,7 +293,7 @@ export function ChartWidget({ data, showRSI, smaPeriod, emaPeriod }: ChartWidget
       }, 'sma-setData');
     }
 
-    // EMA overlay — same pattern
+    // EMA
     if (emaRef.current) {
       safe(() => chart.removeSeries(emaRef.current!), 'ema-remove');
       emaRef.current = null;
@@ -262,22 +321,59 @@ export function ChartWidget({ data, showRSI, smaPeriod, emaPeriod }: ChartWidget
       }, 'rsi-setData');
     }
 
+    // Stochastic
+    if (showStoch && stochKRef.current && stochDRef.current && stochChartRef.current) {
+      safe(() => {
+        const stochData = calculateStochastic(bars, 14, 3);
+        stochKRef.current!.setData(stochData.map((d) => ({
+          time: normalizeTime(d.time), value: d.k,
+        })));
+        stochDRef.current!.setData(stochData.map((d) => ({
+          time: normalizeTime(d.time), value: d.d,
+        })));
+        stochChartRef.current!.timeScale().fitContent();
+      }, 'stoch-setData');
+    }
+
     safe(() => chart.timeScale().fitContent(), 'fitContent');
-  }, [data, showRSI, smaPeriod, emaPeriod]);
+  }, [data, showRSI, showStoch, smaPeriod, emaPeriod]);
+
+  // Dynamic layout heights
+  const indicatorCount = (showRSI ? 1 : 0) + (showStoch ? 1 : 0);
+  const mainCls  = indicatorCount === 0 ? 'h-full' : indicatorCount === 1 ? 'h-[75%]' : 'h-[60%]';
+  const panelCls = indicatorCount === 2 ? 'h-[20%]' : 'h-[25%]';
 
   return (
     <div className="flex flex-col w-full h-full bg-[#131722] rounded-lg overflow-hidden">
-      <div
-        ref={chartContainerRef}
-        className={`w-full ${showRSI ? 'h-[75%]' : 'h-full'}`}
-      />
+
+      {/* ── Main candlestick chart ── */}
+      <div ref={chartContainerRef} className={`w-full ${mainCls}`} />
+
+      {/* ── RSI panel ── */}
       {showRSI && (
-        <div className="w-full h-[25%] border-t border-[#2a2e39] flex flex-col">
+        <div className={`w-full ${panelCls} border-t border-[#2a2e39] flex flex-col`}>
           <div className="flex items-center gap-2 px-4 py-1 bg-[#1e222d] border-b border-[#2a2e39] text-xs text-[#787b86]">
             <span className="font-semibold text-[#b22833]">RSI</span>
             <span>14</span>
           </div>
           <div ref={rsiContainerRef} className="w-full flex-grow" />
+        </div>
+      )}
+
+      {/* ── Stochastic panel ── */}
+      {showStoch && (
+        <div className={`w-full ${panelCls} border-t border-[#2a2e39] flex flex-col`}>
+          <div className="flex items-center gap-2 px-4 py-1 bg-[#1e222d] border-b border-[#2a2e39] text-xs text-[#787b86]">
+            <span className="font-semibold text-[#26c6da]">Stoch</span>
+            <span>14, 3</span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-2.5 h-0.5 bg-[#26c6da] rounded" />%K
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-2.5 h-0.5 bg-[#ff9800] rounded opacity-70" />%D
+            </span>
+          </div>
+          <div ref={stochContainerRef} className="w-full flex-grow" />
         </div>
       )}
     </div>

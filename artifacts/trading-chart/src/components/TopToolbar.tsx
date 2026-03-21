@@ -1,4 +1,4 @@
-import { Activity, TrendingUp, Settings2, Search } from "lucide-react";
+import { Activity, TrendingUp, Settings2, Search, BarChart2 } from "lucide-react";
 import { useGetQuote } from "@workspace/api-client-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -17,6 +17,8 @@ interface TopToolbarProps {
   onIntervalChange: (i: IntervalKey) => void;
   showRSI: boolean;
   setShowRSI: (s: boolean) => void;
+  showStoch: boolean;
+  setShowStoch: (s: boolean) => void;
   smaPeriod: number | null;
   setSmaPeriod: (p: number | null) => void;
   emaPeriod: number | null;
@@ -32,6 +34,8 @@ export function TopToolbar({
   onIntervalChange,
   showRSI,
   setShowRSI,
+  showStoch,
+  setShowStoch,
   smaPeriod,
   setSmaPeriod,
   emaPeriod,
@@ -142,6 +146,19 @@ export function TopToolbar({
         >
           <Activity className="w-3.5 h-3.5" />
           RSI
+        </button>
+
+        {/* Stochastic toggle */}
+        <button
+          onClick={() => setShowStoch(!showStoch)}
+          className={`flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-md border transition-all duration-150 ${
+            showStoch
+              ? "bg-[#26c6da]/10 border-[#26c6da]/50 text-[#26c6da]"
+              : "bg-transparent border-[#2a2e39] text-[#787b86] hover:text-[#d1d4dc] hover:border-[#787b86]"
+          }`}
+        >
+          <BarChart2 className="w-3.5 h-3.5" />
+          Stoch
         </button>
 
         {/* Moving Averages */}
