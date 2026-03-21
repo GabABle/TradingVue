@@ -8,24 +8,91 @@ import {
   type RangeKey,
   type IntervalKey,
   RANGE_CONFIG,
+  INTERVAL_LABELS,
   getRangeStart,
   resolveInterval,
 } from "@/lib/ranges";
 import { Activity, AlertCircle, Star } from "lucide-react";
 
 const DEFAULT_WATCHLIST = ["AAPL", "MSFT", "TSLA", "GOOGL", "NVDA", "AMZN", "BTCUSD", "ETHUSD"];
+const STORAGE_KEY = "tradingTerminalState_v1";
+
+interface PersistedState {
+  symbol: string;
+  selectedRange: RangeKey;
+  interval: IntervalKey;
+  showRSI: boolean;
+  showStoch: boolean;
+  smaPeriod: number | null;
+  emaPeriod: number | null;
+  watchlist: string[];
+}
+
+const VALID_RANGES = Object.keys(RANGE_CONFIG) as RangeKey[];
+const VALID_INTERVALS = Object.keys(INTERVAL_LABELS) as IntervalKey[];
+
+function loadState(): PersistedState {
+  const defaults: PersistedState = {
+    symbol: "AAPL",
+    selectedRange: "1Y",
+    interval: "1Day",
+    showRSI: false,
+    showStoch: false,
+    smaPeriod: null,
+    emaPeriod: null,
+    watchlist: DEFAULT_WATCHLIST,
+  };
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return defaults;
+    const parsed = JSON.parse(raw) as Partial<PersistedState>;
+    return {
+      symbol:        typeof parsed.symbol === "string" && parsed.symbol.length > 0
+                       ? parsed.symbol : defaults.symbol,
+      selectedRange: VALID_RANGES.includes(parsed.selectedRange as RangeKey)
+                       ? parsed.selectedRange as RangeKey : defaults.selectedRange,
+      interval:      VALID_INTERVALS.includes(parsed.interval as IntervalKey)
+                       ? parsed.interval as IntervalKey : defaults.interval,
+      showRSI:       typeof parsed.showRSI === "boolean" ? parsed.showRSI : defaults.showRSI,
+      showStoch:     typeof parsed.showStoch === "boolean" ? parsed.showStoch : defaults.showStoch,
+      smaPeriod:     typeof parsed.smaPeriod === "number" || parsed.smaPeriod === null
+                       ? parsed.smaPeriod ?? null : defaults.smaPeriod,
+      emaPeriod:     typeof parsed.emaPeriod === "number" || parsed.emaPeriod === null
+                       ? parsed.emaPeriod ?? null : defaults.emaPeriod,
+      watchlist:     Array.isArray(parsed.watchlist) && parsed.watchlist.length > 0
+                       ? parsed.watchlist : defaults.watchlist,
+    };
+  } catch {
+    return defaults;
+  }
+}
 
 export default function TradingTerminal() {
-  const [symbol, setSymbol]               = useState("AAPL");
-  const [selectedRange, setSelectedRange] = useState<RangeKey>("1Y");
-  const [interval, setInterval]           = useState<IntervalKey>("1Day");
-  const [showRSI, setShowRSI]             = useState(false);
-  const [showStoch, setShowStoch]         = useState(false);
-  const [smaPeriod, setSmaPeriod]         = useState<number | null>(null);
-  const [emaPeriod, setEmaPeriod]         = useState<number | null>(null);
-  const [watchlist, setWatchlist]         = useState<string[]>(DEFAULT_WATCHLIST);
+  const saved = loadState();
+
+  const [symbol, setSymbol]               = useState(saved.symbol);
+  const [selectedRange, setSelectedRange] = useState<RangeKey>(saved.selectedRange);
+  const [interval, setInterval]           = useState<IntervalKey>(saved.interval);
+  const [showRSI, setShowRSI]             = useState(saved.showRSI);
+  const [showStoch, setShowStoch]         = useState(saved.showStoch);
+  const [smaPeriod, setSmaPeriod]         = useState<number | null>(saved.smaPeriod);
+  const [emaPeriod, setEmaPeriod]         = useState<number | null>(saved.emaPeriod);
+  const [watchlist, setWatchlist]         = useState<string[]>(saved.watchlist);
   const [searchOpen, setSearchOpen]       = useState(false);
   const [searchInitial, setSearchInitial] = useState("");
+
+  // Persist state to localStorage whenever anything meaningful changes
+  useEffect(() => {
+    try {
+      const state: PersistedState = {
+        symbol, selectedRange, interval,
+        showRSI, showStoch, smaPeriod, emaPeriod, watchlist,
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch {
+      // localStorage may be unavailable (private browsing quota exceeded, etc.)
+    }
+  }, [symbol, selectedRange, interval, showRSI, showStoch, smaPeriod, emaPeriod, watchlist]);
 
   const handleRangeChange = useCallback((newRange: RangeKey) => {
     setSelectedRange(newRange);
