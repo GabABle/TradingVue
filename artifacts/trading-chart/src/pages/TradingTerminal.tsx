@@ -3,7 +3,6 @@ import { useGetBars } from "@workspace/api-client-react";
 import { ChartWidget } from "@/components/ChartWidget";
 import { TopToolbar } from "@/components/TopToolbar";
 import { RightPanel } from "@/components/RightPanel";
-import { DrawingToolbar } from "@/components/DrawingToolbar";
 import { SymbolSearch } from "@/components/SymbolSearch";
 import {
   type RangeKey,
@@ -13,13 +12,6 @@ import {
   getRangeStart,
   resolveInterval,
 } from "@/lib/ranges";
-import {
-  type Drawing,
-  type DrawingTool,
-  DEFAULT_DRAWING_COLOR,
-  loadDrawings,
-  saveDrawings,
-} from "@/lib/drawings";
 import { Activity, AlertCircle, Star } from "lucide-react";
 
 const DEFAULT_WATCHLIST = ["AAPL", "MSFT", "TSLA", "GOOGL", "NVDA", "AMZN", "BTCUSD", "ETHUSD"];
@@ -62,12 +54,6 @@ function loadState(): PersistedState {
   } catch { return defaults; }
 }
 
-const TOOL_SHORTCUTS: Partial<Record<string, DrawingTool>> = {
-  V: 'cursor', T: 'trendline', H: 'hline',
-  R: 'rect',   F: 'fib',       M: 'ruler',
-  A: 'text',   E: 'eraser',
-};
-
 export default function TradingTerminal() {
   const saved = loadState();
 
@@ -82,11 +68,6 @@ export default function TradingTerminal() {
   const [searchOpen, setSearchOpen]       = useState(false);
   const [searchInitial, setSearchInitial] = useState("");
 
-  // Drawing state
-  const [activeTool, setActiveTool]       = useState<DrawingTool>('cursor');
-  const [activeColor, setActiveColor]     = useState(DEFAULT_DRAWING_COLOR);
-  const [drawings, setDrawings]           = useState<Drawing[]>(() => loadDrawings(saved.symbol));
-
   // Persist app state
   useEffect(() => {
     try {
@@ -95,15 +76,6 @@ export default function TradingTerminal() {
       }));
     } catch { /* ignore */ }
   }, [symbol, selectedRange, interval, showRSI, showStoch, smaPeriod, emaPeriod, watchlist]);
-
-  // Per-symbol drawings: load on symbol change, save on drawings change
-  useEffect(() => {
-    setDrawings(loadDrawings(symbol));
-  }, [symbol]);
-
-  useEffect(() => {
-    saveDrawings(symbol, drawings);
-  }, [symbol, drawings]);
 
   const handleRangeChange = useCallback((newRange: RangeKey) => {
     setSelectedRange(newRange);
@@ -121,30 +93,13 @@ export default function TradingTerminal() {
     limit: 2000,
   });
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts: any letter key opens symbol search
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-
-      const key = e.key.toUpperCase();
-
-      // Escape: return to cursor / cancel pending
-      if (e.key === "Escape") {
-        setActiveTool("cursor");
-        return;
-      }
-
-      // Drawing shortcuts take priority
-      if (!searchOpen && TOOL_SHORTCUTS[key]) {
-        e.preventDefault();
-        setActiveTool(TOOL_SHORTCUTS[key]!);
-        return;
-      }
-
-      // Letter key → open search (only when not a drawing shortcut or search is open)
-      if (/^[a-zA-Z]$/.test(e.key) && !TOOL_SHORTCUTS[key]) {
+      if (/^[a-zA-Z]$/.test(e.key) && !searchOpen) {
         e.preventDefault();
         setSearchInitial(e.key.toUpperCase());
         setSearchOpen(true);
@@ -167,20 +122,6 @@ export default function TradingTerminal() {
     else               setWatchlist(prev => [symbol, ...prev]);
   };
 
-  // Drawing handlers
-  const handleDrawingCreate = useCallback((d: Drawing) => {
-    setDrawings(prev => [...prev, d]);
-  }, []);
-
-  const handleDrawingDelete = useCallback((id: string) => {
-    setDrawings(prev => prev.filter(d => d.id !== id));
-  }, []);
-
-  const handleClearAllDrawings = useCallback(() => {
-    setDrawings([]);
-    setActiveTool('cursor');
-  }, []);
-
   return (
     <div className="flex flex-col h-screen w-screen bg-[#0a0e17] text-[#d1d4dc] overflow-hidden font-sans">
 
@@ -198,16 +139,6 @@ export default function TradingTerminal() {
       />
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
-
-        {/* ── Drawing toolbar (left) ── */}
-        <DrawingToolbar
-          activeTool={activeTool}
-          onToolChange={setActiveTool}
-          activeColor={activeColor}
-          onColorChange={setActiveColor}
-          onClearAll={handleClearAllDrawings}
-          hasDrawings={drawings.length > 0}
-        />
 
         <main className="flex-1 relative p-3 flex flex-col min-w-0">
 
@@ -246,11 +177,6 @@ export default function TradingTerminal() {
                 showStoch={showStoch}
                 smaPeriod={smaPeriod}
                 emaPeriod={emaPeriod}
-                activeTool={activeTool}
-                activeColor={activeColor}
-                drawings={drawings}
-                onDrawingCreate={handleDrawingCreate}
-                onDrawingDelete={handleDrawingDelete}
               />
 
               {/* Watchlist star */}
@@ -272,14 +198,6 @@ export default function TradingTerminal() {
                 {isInWatchlist ? "Watching" : "Watch"}
               </button>
 
-              {/* Active tool indicator */}
-              {activeTool !== 'cursor' && (
-                <div className="absolute bottom-3 left-3 z-20 flex items-center gap-1.5 px-2 py-1 rounded bg-[#1e222d]/90 border border-[#2a2e39] text-[10px] text-[#787b86] pointer-events-none">
-                  <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: activeColor }} />
-                  <span className="uppercase tracking-widest font-semibold">{activeTool}</span>
-                  <span className="opacity-50">· Esc to exit</span>
-                </div>
-              )}
             </div>
           )}
         </main>
