@@ -36,6 +36,18 @@ function FibIcon() {
   );
 }
 
+function RulerIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <line x1="2" y1="14" x2="14" y2="2" />
+      <line x1="6"  y1="14" x2="6"  y2="11" strokeWidth="1" />
+      <line x1="10" y1="14" x2="10" y2="11" strokeWidth="1" />
+      <line x1="2"  y1="10" x2="5"  y2="10" strokeWidth="1" />
+      <line x1="2"  y1="6"  x2="5"  y2="6"  strokeWidth="1" />
+    </svg>
+  );
+}
+
 type ToolDef = { id: DrawingTool; label: string; shortcut?: string; Icon: React.FC };
 
 const TOOL_GROUPS: ToolDef[][] = [
@@ -48,6 +60,7 @@ const TOOL_GROUPS: ToolDef[][] = [
   [
     { id: 'rect',      label: 'Rectangle',               shortcut: 'R', Icon: Square as React.FC },
     { id: 'fib',       label: 'Fibonacci Retracement',   shortcut: 'F', Icon: FibIcon },
+    { id: 'ruler',     label: 'Ruler / Measure',         shortcut: 'M', Icon: RulerIcon },
   ],
   [
     { id: 'text',      label: 'Text',                    shortcut: 'A', Icon: Type as React.FC },

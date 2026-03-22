@@ -5,6 +5,7 @@ export type DrawingTool =
   | 'vline'
   | 'rect'
   | 'fib'
+  | 'ruler'
   | 'text'
   | 'eraser';
 
@@ -31,6 +32,10 @@ export interface FibDrawing {
   id: string; type: 'fib'; color: string;
   p1: DrawingPoint; p2: DrawingPoint;
 }
+export interface RulerDrawing {
+  id: string; type: 'ruler'; color: string;
+  p1: DrawingPoint; p2: DrawingPoint;
+}
 export interface TextDrawing {
   id: string; type: 'text'; color: string;
   pos: DrawingPoint; text: string;
@@ -38,7 +43,7 @@ export interface TextDrawing {
 
 export type Drawing =
   | TrendLineDrawing | HLineDrawing | VLineDrawing
-  | RectDrawing | FibDrawing | TextDrawing;
+  | RectDrawing | FibDrawing | RulerDrawing | TextDrawing;
 
 export const FIB_LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1] as const;
 

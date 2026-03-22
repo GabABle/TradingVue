@@ -64,7 +64,8 @@ function loadState(): PersistedState {
 
 const TOOL_SHORTCUTS: Partial<Record<string, DrawingTool>> = {
   V: 'cursor', T: 'trendline', H: 'hline',
-  R: 'rect',   F: 'fib',       A: 'text', E: 'eraser',
+  R: 'rect',   F: 'fib',       M: 'ruler',
+  A: 'text',   E: 'eraser',
 };
 
 export default function TradingTerminal() {
