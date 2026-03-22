@@ -472,9 +472,15 @@ export function ChartWidget({
       const color = activeColorRef.current;
       if (tool === 'cursor') return;
 
+      console.log('[TradingVue] chart click — tool:', tool, 'point:', params.point, 'time:', params.time);
+
       const coords = resolveCoords(params);
-      if (!coords) return;
+      if (!coords) {
+        console.log('[TradingVue] resolveCoords returned null — click outside pane?');
+        return;
+      }
       const { time, price, x, y } = coords;
+      console.log('[TradingVue] coords — time:', time, 'price:', price);
 
       // Eraser
       if (tool === 'eraser') {
@@ -495,8 +501,10 @@ export function ChartWidget({
 
       // Horizontal line: only needs price
       if (tool === 'hline') {
-        if (price === null) return;
-        onCreateRef.current({ id: uid(), type: 'hline', color, price });
+        if (price === null) { console.log('[TradingVue] hline skipped — price is null'); return; }
+        const d = { id: uid(), type: 'hline' as const, color, price };
+        console.log('[TradingVue] creating hline drawing:', d);
+        onCreateRef.current(d);
         return;
       }
 
