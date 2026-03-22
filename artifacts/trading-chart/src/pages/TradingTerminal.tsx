@@ -3,6 +3,7 @@ import { useGetBars } from "@workspace/api-client-react";
 import { ChartWidget } from "@/components/ChartWidget";
 import { TopToolbar } from "@/components/TopToolbar";
 import { RightPanel } from "@/components/RightPanel";
+import { DrawingToolbar } from "@/components/DrawingToolbar";
 import { SymbolSearch } from "@/components/SymbolSearch";
 import {
   type RangeKey,
@@ -12,6 +13,13 @@ import {
   getRangeStart,
   resolveInterval,
 } from "@/lib/ranges";
+import {
+  type Drawing,
+  type DrawingTool,
+  DEFAULT_DRAWING_COLOR,
+  loadDrawings,
+  saveDrawings,
+} from "@/lib/drawings";
 import { Activity, AlertCircle, Star } from "lucide-react";
 
 const DEFAULT_WATCHLIST = ["AAPL", "MSFT", "TSLA", "GOOGL", "NVDA", "AMZN", "BTCUSD", "ETHUSD"];
@@ -28,44 +36,36 @@ interface PersistedState {
   watchlist: string[];
 }
 
-const VALID_RANGES = Object.keys(RANGE_CONFIG) as RangeKey[];
+const VALID_RANGES    = Object.keys(RANGE_CONFIG) as RangeKey[];
 const VALID_INTERVALS = Object.keys(INTERVAL_LABELS) as IntervalKey[];
 
 function loadState(): PersistedState {
   const defaults: PersistedState = {
-    symbol: "AAPL",
-    selectedRange: "1Y",
-    interval: "1Day",
-    showRSI: false,
-    showStoch: false,
-    smaPeriod: null,
-    emaPeriod: null,
+    symbol: "AAPL", selectedRange: "1Y", interval: "1Day",
+    showRSI: false, showStoch: false, smaPeriod: null, emaPeriod: null,
     watchlist: DEFAULT_WATCHLIST,
   };
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return defaults;
-    const parsed = JSON.parse(raw) as Partial<PersistedState>;
+    const p = JSON.parse(raw) as Partial<PersistedState>;
     return {
-      symbol:        typeof parsed.symbol === "string" && parsed.symbol.length > 0
-                       ? parsed.symbol : defaults.symbol,
-      selectedRange: VALID_RANGES.includes(parsed.selectedRange as RangeKey)
-                       ? parsed.selectedRange as RangeKey : defaults.selectedRange,
-      interval:      VALID_INTERVALS.includes(parsed.interval as IntervalKey)
-                       ? parsed.interval as IntervalKey : defaults.interval,
-      showRSI:       typeof parsed.showRSI === "boolean" ? parsed.showRSI : defaults.showRSI,
-      showStoch:     typeof parsed.showStoch === "boolean" ? parsed.showStoch : defaults.showStoch,
-      smaPeriod:     typeof parsed.smaPeriod === "number" || parsed.smaPeriod === null
-                       ? parsed.smaPeriod ?? null : defaults.smaPeriod,
-      emaPeriod:     typeof parsed.emaPeriod === "number" || parsed.emaPeriod === null
-                       ? parsed.emaPeriod ?? null : defaults.emaPeriod,
-      watchlist:     Array.isArray(parsed.watchlist) && parsed.watchlist.length > 0
-                       ? parsed.watchlist : defaults.watchlist,
+      symbol:        typeof p.symbol === "string" && p.symbol.length > 0 ? p.symbol : defaults.symbol,
+      selectedRange: VALID_RANGES.includes(p.selectedRange as RangeKey) ? p.selectedRange as RangeKey : defaults.selectedRange,
+      interval:      VALID_INTERVALS.includes(p.interval as IntervalKey) ? p.interval as IntervalKey : defaults.interval,
+      showRSI:       typeof p.showRSI === "boolean"   ? p.showRSI   : defaults.showRSI,
+      showStoch:     typeof p.showStoch === "boolean"  ? p.showStoch : defaults.showStoch,
+      smaPeriod:     typeof p.smaPeriod === "number"   || p.smaPeriod === null ? p.smaPeriod ?? null : defaults.smaPeriod,
+      emaPeriod:     typeof p.emaPeriod === "number"   || p.emaPeriod === null ? p.emaPeriod ?? null : defaults.emaPeriod,
+      watchlist:     Array.isArray(p.watchlist) && p.watchlist.length > 0 ? p.watchlist : defaults.watchlist,
     };
-  } catch {
-    return defaults;
-  }
+  } catch { return defaults; }
 }
+
+const TOOL_SHORTCUTS: Partial<Record<string, DrawingTool>> = {
+  V: 'cursor', T: 'trendline', H: 'hline',
+  R: 'rect',   F: 'fib',       A: 'text', E: 'eraser',
+};
 
 export default function TradingTerminal() {
   const saved = loadState();
@@ -81,22 +81,32 @@ export default function TradingTerminal() {
   const [searchOpen, setSearchOpen]       = useState(false);
   const [searchInitial, setSearchInitial] = useState("");
 
-  // Persist state to localStorage whenever anything meaningful changes
+  // Drawing state
+  const [activeTool, setActiveTool]       = useState<DrawingTool>('cursor');
+  const [activeColor, setActiveColor]     = useState(DEFAULT_DRAWING_COLOR);
+  const [drawings, setDrawings]           = useState<Drawing[]>(() => loadDrawings(saved.symbol));
+
+  // Persist app state
   useEffect(() => {
     try {
-      const state: PersistedState = {
-        symbol, selectedRange, interval,
-        showRSI, showStoch, smaPeriod, emaPeriod, watchlist,
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch {
-      // localStorage may be unavailable (private browsing quota exceeded, etc.)
-    }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        symbol, selectedRange, interval, showRSI, showStoch, smaPeriod, emaPeriod, watchlist,
+      }));
+    } catch { /* ignore */ }
   }, [symbol, selectedRange, interval, showRSI, showStoch, smaPeriod, emaPeriod, watchlist]);
+
+  // Per-symbol drawings: load on symbol change, save on drawings change
+  useEffect(() => {
+    setDrawings(loadDrawings(symbol));
+  }, [symbol]);
+
+  useEffect(() => {
+    saveDrawings(symbol, drawings);
+  }, [symbol, drawings]);
 
   const handleRangeChange = useCallback((newRange: RangeKey) => {
     setSelectedRange(newRange);
-    setInterval((prev) => resolveInterval(newRange, prev));
+    setInterval(prev => resolveInterval(newRange, prev));
   }, []);
 
   const handleIntervalChange = useCallback((newInterval: IntervalKey) => {
@@ -110,13 +120,30 @@ export default function TradingTerminal() {
     limit: 2000,
   });
 
-  // Global keydown: any letter key → open search pre-filled with that character
+  // Keyboard shortcuts
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (/^[a-zA-Z]$/.test(e.key)) {
+
+      const key = e.key.toUpperCase();
+
+      // Escape: return to cursor / cancel pending
+      if (e.key === "Escape") {
+        setActiveTool("cursor");
+        return;
+      }
+
+      // Drawing shortcuts take priority
+      if (!searchOpen && TOOL_SHORTCUTS[key]) {
+        e.preventDefault();
+        setActiveTool(TOOL_SHORTCUTS[key]!);
+        return;
+      }
+
+      // Letter key → open search (only when not a drawing shortcut or search is open)
+      if (/^[a-zA-Z]$/.test(e.key) && !TOOL_SHORTCUTS[key]) {
         e.preventDefault();
         setSearchInitial(e.key.toUpperCase());
         setSearchOpen(true);
@@ -124,27 +151,34 @@ export default function TradingTerminal() {
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, []);
+  }, [searchOpen]);
 
   const openSearch = useCallback((initial = "") => {
     setSearchInitial(initial);
     setSearchOpen(true);
   }, []);
 
-  // Selecting a symbol from search only changes the chart — user pins manually via star
-  const handleSymbolSelect = (sym: string) => {
-    setSymbol(sym);
-  };
+  const handleSymbolSelect = (sym: string) => { setSymbol(sym); };
 
   const isInWatchlist = watchlist.includes(symbol);
-
   const toggleWatchlist = () => {
-    if (isInWatchlist) {
-      setWatchlist((prev) => prev.filter((s) => s !== symbol));
-    } else {
-      setWatchlist((prev) => [symbol, ...prev]);
-    }
+    if (isInWatchlist) setWatchlist(prev => prev.filter(s => s !== symbol));
+    else               setWatchlist(prev => [symbol, ...prev]);
   };
+
+  // Drawing handlers
+  const handleDrawingCreate = useCallback((d: Drawing) => {
+    setDrawings(prev => [...prev, d]);
+  }, []);
+
+  const handleDrawingDelete = useCallback((id: string) => {
+    setDrawings(prev => prev.filter(d => d.id !== id));
+  }, []);
+
+  const handleClearAllDrawings = useCallback(() => {
+    setDrawings([]);
+    setActiveTool('cursor');
+  }, []);
 
   return (
     <div className="flex flex-col h-screen w-screen bg-[#0a0e17] text-[#d1d4dc] overflow-hidden font-sans">
@@ -155,18 +189,25 @@ export default function TradingTerminal() {
         interval={interval}
         onRangeChange={handleRangeChange}
         onIntervalChange={handleIntervalChange}
-        showRSI={showRSI}
-        setShowRSI={setShowRSI}
-        showStoch={showStoch}
-        setShowStoch={setShowStoch}
-        smaPeriod={smaPeriod}
-        setSmaPeriod={setSmaPeriod}
-        emaPeriod={emaPeriod}
-        setEmaPeriod={setEmaPeriod}
+        showRSI={showRSI} setShowRSI={setShowRSI}
+        showStoch={showStoch} setShowStoch={setShowStoch}
+        smaPeriod={smaPeriod} setSmaPeriod={setSmaPeriod}
+        emaPeriod={emaPeriod} setEmaPeriod={setEmaPeriod}
         onSearchOpen={openSearch}
       />
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
+
+        {/* ── Drawing toolbar (left) ── */}
+        <DrawingToolbar
+          activeTool={activeTool}
+          onToolChange={setActiveTool}
+          activeColor={activeColor}
+          onColorChange={setActiveColor}
+          onClearAll={handleClearAllDrawings}
+          hasDrawings={drawings.length > 0}
+        />
+
         <main className="flex-1 relative p-3 flex flex-col min-w-0">
 
           {isLoading && (
@@ -181,7 +222,7 @@ export default function TradingTerminal() {
               <AlertCircle className="w-10 h-10 text-[#ef5350] mb-3" />
               <h3 className="text-lg font-bold text-[#d1d4dc] mb-1">Data Unavailable</h3>
               <p className="text-[#787b86] text-sm text-center max-w-sm">
-                {(error as any)?.message ?? "Could not fetch market data. Check your API keys or try a different symbol."}
+                {(error as any)?.message ?? "Could not fetch market data."}
               </p>
             </div>
           )}
@@ -190,9 +231,7 @@ export default function TradingTerminal() {
             <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-[#131722] rounded-xl m-3 border border-[#2a2e39]">
               <Activity className="w-14 h-14 text-[#2a2e39] mb-3" />
               <p className="text-[#787b86] text-sm">
-                No data for{" "}
-                <span className="font-mono font-bold text-[#d1d4dc]">{symbol}</span>{" "}
-                at this range / interval.
+                No data for <span className="font-mono font-bold text-[#d1d4dc]">{symbol}</span> at this range / interval.
               </p>
             </div>
           )}
@@ -206,9 +245,14 @@ export default function TradingTerminal() {
                 showStoch={showStoch}
                 smaPeriod={smaPeriod}
                 emaPeriod={emaPeriod}
+                activeTool={activeTool}
+                activeColor={activeColor}
+                drawings={drawings}
+                onDrawingCreate={handleDrawingCreate}
+                onDrawingDelete={handleDrawingDelete}
               />
 
-              {/* ── Watchlist star button ── */}
+              {/* Watchlist star */}
               <button
                 onClick={toggleWatchlist}
                 title={isInWatchlist ? `Remove ${symbol} from watchlist` : `Add ${symbol} to watchlist`}
@@ -223,13 +267,18 @@ export default function TradingTerminal() {
                   }
                 `}
               >
-                <Star
-                  className={`w-3.5 h-3.5 transition-all ${
-                    isInWatchlist ? "fill-[#f59e0b]" : "fill-transparent group-hover:fill-[#f59e0b]/20"
-                  }`}
-                />
+                <Star className={`w-3.5 h-3.5 transition-all ${isInWatchlist ? "fill-[#f59e0b]" : "fill-transparent group-hover:fill-[#f59e0b]/20"}`} />
                 {isInWatchlist ? "Watching" : "Watch"}
               </button>
+
+              {/* Active tool indicator */}
+              {activeTool !== 'cursor' && (
+                <div className="absolute bottom-3 left-3 z-20 flex items-center gap-1.5 px-2 py-1 rounded bg-[#1e222d]/90 border border-[#2a2e39] text-[10px] text-[#787b86] pointer-events-none">
+                  <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: activeColor }} />
+                  <span className="uppercase tracking-widest font-semibold">{activeTool}</span>
+                  <span className="opacity-50">· Esc to exit</span>
+                </div>
+              )}
             </div>
           )}
         </main>
@@ -238,8 +287,8 @@ export default function TradingTerminal() {
           symbols={watchlist}
           activeSymbol={symbol}
           onSelect={setSymbol}
-          onAdd={(sym) => setWatchlist((p) => (p.includes(sym) ? p : [...p, sym]))}
-          onRemove={(sym) => setWatchlist((p) => p.filter((s) => s !== sym))}
+          onAdd={sym => setWatchlist(p => p.includes(sym) ? p : [...p, sym])}
+          onRemove={sym => setWatchlist(p => p.filter(s => s !== sym))}
           onSearchOpen={openSearch}
           chatContext={{ symbol, range: selectedRange, interval, showRSI, showStoch, smaPeriod, emaPeriod }}
         />

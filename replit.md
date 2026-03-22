@@ -1,5 +1,21 @@
 # Workspace
 
+## TradingVue App
+
+A TradingView-style trading terminal at `artifacts/trading-chart/` with:
+- Candlestick chart (lightweight-charts v5) with RSI + Stochastic sub-panels
+- SMA/EMA overlay indicators
+- Drawing tools toolbar (left side): trend line, horizontal/vertical line, rectangle, fibonacci retracement, text labels, eraser
+- Drawings stored per-symbol in localStorage; persist across sessions
+- Symbol autosuggest search (Alpaca API)
+- Watchlist sidebar with live prices + sortable % change column
+- News panel (Yahoo Finance search API, tiered relevance ranking)
+- AI chat panel (SSE streaming, GPT-5.2 via Replit AI Integrations)
+- Resizable right panel (width + section heights via drag handles)
+- Keyboard shortcuts: V=cursor, T=trend, H=hline, R=rect, F=fib, A=text, E=eraser, Esc=exit tool
+
+API server at `artifacts/api-server/` serves market data, news, and chat routes.
+
 ## Overview
 
 pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
