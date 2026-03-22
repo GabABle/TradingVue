@@ -396,12 +396,14 @@ export function ChartWidget({
   const pendingRef       = useRef<PendingDrawing | null>(null);
   const onCreateRef      = useRef(onDrawingCreate);
   const onDeleteRef      = useRef(onDrawingDelete);
+  const textInputRef     = useRef(textInput);
 
   useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
   useEffect(() => { activeColorRef.current = activeColor; }, [activeColor]);
   useEffect(() => { drawingsRef.current = drawings; }, [drawings]);
   useEffect(() => { onCreateRef.current = onDrawingCreate; }, [onDrawingCreate]);
   useEffect(() => { onDeleteRef.current = onDrawingDelete; }, [onDrawingDelete]);
+  useEffect(() => { textInputRef.current = textInput; }, [textInput]);
 
   // Reset pending when tool changes
   useEffect(() => {
@@ -467,27 +469,26 @@ export function ChartWidget({
     }
 
     // ── Click handler ──────────────────────────────────────────────────────
+    // NOTE: queueMicrotask() wraps all parent-state updates (onCreateRef / onDeleteRef)
+    // to guarantee they run outside React's current render/commit cycle.
+    // lightweight-charts fires subscribeClick synchronously during its own internal
+    // update pass, which can coincide with React's commit phase and cause
+    // "Cannot update a component while rendering a different component" errors.
     const clickHandler = (params: any) => {
       const tool = activeToolRef.current;
       const color = activeColorRef.current;
       if (tool === 'cursor') return;
 
-      console.log('[TradingVue] chart click — tool:', tool, 'point:', params.point, 'time:', params.time);
-
       const coords = resolveCoords(params);
-      if (!coords) {
-        console.log('[TradingVue] resolveCoords returned null — click outside pane?');
-        return;
-      }
+      if (!coords) return;
       const { time, price, x, y } = coords;
-      console.log('[TradingVue] coords — time:', time, 'price:', price);
 
       // Eraser
       if (tool === 'eraser') {
         const W = el.clientWidth ?? 800;
         const H = el.clientHeight ?? 600;
         const hit = drawingsRef.current.find(d => hitTest(d, x, y, chart, candle, W, H));
-        if (hit) onDeleteRef.current(hit.id);
+        if (hit) queueMicrotask(() => onDeleteRef.current(hit.id));
         return;
       }
 
@@ -501,23 +502,22 @@ export function ChartWidget({
 
       // Horizontal line: only needs price
       if (tool === 'hline') {
-        if (price === null) { console.log('[TradingVue] hline skipped — price is null'); return; }
+        if (price === null) return;
         const d = { id: uid(), type: 'hline' as const, color, price };
-        console.log('[TradingVue] creating hline drawing:', d);
-        onCreateRef.current(d);
+        queueMicrotask(() => onCreateRef.current(d));
         return;
       }
 
       // Vertical line: only needs time
       if (tool === 'vline') {
         if (time === null) return;
-        onCreateRef.current({ id: uid(), type: 'vline', color, time });
+        const d = { id: uid(), type: 'vline' as const, color, time };
+        queueMicrotask(() => onCreateRef.current(d));
         return;
       }
 
       // Two-point tools: need both
       if (tool === 'trendline' || tool === 'rect' || tool === 'fib' || tool === 'ruler') {
-        // Use best available coords; for missing coord use a fallback
         const pt: DrawingPoint = {
           time: time ?? (pendingRef.current?.p1.time ?? 0),
           price: price ?? (pendingRef.current?.p1.price ?? 0),
@@ -526,9 +526,10 @@ export function ChartWidget({
         if (pendingRef.current) {
           const { p1, type } = pendingRef.current;
           const id = uid();
-          onCreateRef.current({ id, type, color, p1, p2: pt } as Drawing);
+          const d = { id, type, color, p1, p2: pt } as Drawing;
           pendingRef.current = null;
           setPending(null);
+          queueMicrotask(() => onCreateRef.current(d));
         } else {
           const p: PendingDrawing = { type: tool as PendingDrawing['type'], p1: pt };
           pendingRef.current = p;
@@ -726,17 +727,22 @@ export function ChartWidget({
   }, [data, showRSI, showStoch, smaPeriod, emaPeriod]);
 
   // ── Text input commit ──────────────────────────────────────────────────────
+  // IMPORTANT: do NOT call onCreateRef.current() inside a setTextInput() updater —
+  // that updater runs during React's render phase and calling a parent setState
+  // from it triggers "Cannot update a component while rendering" and drops the update.
+  // Instead, read the current value from textInputRef, clear the input immediately,
+  // then schedule the drawing creation via queueMicrotask so it runs after render.
   const commitText = useCallback(() => {
-    setTextInput(ti => {
-      if (ti && ti.value.trim()) {
-        onCreateRef.current({
-          id: uid(), type: 'text',
-          color: activeColorRef.current,
-          pos: ti.pos, text: ti.value.trim(),
-        });
-      }
-      return null;
-    });
+    const ti = textInputRef.current;
+    setTextInput(null);
+    if (ti && ti.value.trim()) {
+      const d = {
+        id: uid(), type: 'text' as const,
+        color: activeColorRef.current,
+        pos: ti.pos, text: ti.value.trim(),
+      };
+      queueMicrotask(() => onCreateRef.current(d));
+    }
   }, []);
 
   // ── Cursor style ────────────────────────────────────────────────────────────
