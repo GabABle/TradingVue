@@ -2,6 +2,22 @@ import { useState, useCallback, useEffect, useMemo } from "react";
 import { Plus, X, Star, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 import { useGetQuote } from "@workspace/api-client-react";
 
+type MarketSession = "pre" | "regular" | "after" | "closed";
+
+function SessionPill({ session }: { session?: MarketSession }) {
+  if (!session || session === "regular") return null;
+  const cfg = {
+    pre:    { label: "PRE", cls: "text-[#f59e0b]" },
+    after:  { label: "AH",  cls: "text-[#818cf8]" },
+    closed: { label: "—",   cls: "text-[#4c525e]" },
+  }[session];
+  return (
+    <span className={`text-[8px] font-bold tracking-widest leading-none ${cfg.cls}`}>
+      {cfg.label}
+    </span>
+  );
+}
+
 interface WatchlistProps {
   symbols: string[];
   activeSymbol: string;
@@ -77,14 +93,17 @@ function WatchlistItem({
         )}
       </div>
 
-      {/* Price */}
-      <div className="w-[52px] shrink-0 text-right">
+      {/* Price + session */}
+      <div className="w-[52px] shrink-0 text-right flex flex-col items-end gap-0.5">
         {quote ? (
-          <span className="text-xs font-mono font-bold text-[#d1d4dc]">
-            {quote.price < 1
-              ? quote.price.toFixed(4)
-              : quote.price.toFixed(2)}
-          </span>
+          <>
+            <span className="text-xs font-mono font-bold text-[#d1d4dc]">
+              {quote.price < 1
+                ? quote.price.toFixed(4)
+                : quote.price.toFixed(2)}
+            </span>
+            <SessionPill session={(quote as any).session} />
+          </>
         ) : (
           <div className="ml-auto w-10 h-3 bg-[#2a2e39] rounded animate-pulse" />
         )}

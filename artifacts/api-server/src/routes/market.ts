@@ -15,6 +15,46 @@ function alpacaHeaders() {
   };
 }
 
+// ── Market session detection (US Eastern Time) ──────────────────────────────
+// Sessions:
+//   pre      04:00 – 09:30 ET  Mon–Fri
+//   regular  09:30 – 16:00 ET  Mon–Fri
+//   after    16:00 – 20:00 ET  Mon–Fri
+//   closed   all other times / weekends
+type MarketSession = "pre" | "regular" | "after" | "closed";
+
+function getMarketSession(): MarketSession {
+  const now = new Date();
+  // Convert to US/Eastern (UTC-5 winter, UTC-4 summer)
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000;
+  // Detect DST: second Sunday in March → first Sunday in November
+  const year = now.getUTCFullYear();
+  const dstStart = nthSundayOfMonth(year, 2, 2); // March = month 2 (0-based)
+  const dstEnd   = nthSundayOfMonth(year, 10, 1); // November = month 10 (0-based)
+  const isDST = now >= dstStart && now < dstEnd;
+  const offsetMs = isDST ? -4 * 3_600_000 : -5 * 3_600_000;
+  const etDate = new Date(utcMs + offsetMs);
+
+  const day = etDate.getDay(); // 0 Sun, 6 Sat
+  if (day === 0 || day === 6) return "closed";
+
+  const h = etDate.getHours();
+  const m = etDate.getMinutes();
+  const minutes = h * 60 + m;
+
+  if (minutes < 4 * 60)          return "closed";  // before 4:00 AM
+  if (minutes < 9 * 60 + 30)     return "pre";     // 4:00–9:30
+  if (minutes < 16 * 60)         return "regular"; // 9:30–16:00
+  if (minutes < 20 * 60)         return "after";   // 16:00–20:00
+  return "closed";                                  // after 8 PM
+}
+
+function nthSundayOfMonth(year: number, month: number, n: number): Date {
+  const d = new Date(Date.UTC(year, month, 1));
+  const firstSunday = (7 - d.getUTCDay()) % 7;
+  return new Date(Date.UTC(year, month, 1 + firstSunday + (n - 1) * 7, 7, 0, 0)); // 2:00 AM ET = 7 UTC
+}
+
 router.get("/market/bars", async (req, res) => {
   try {
     const { symbol, timeframe, start, end, limit = "200", feed } = req.query as Record<string, string>;
@@ -32,7 +72,11 @@ router.get("/market/bars", async (req, res) => {
       limit: limit ?? "200",
     });
     // "adjustment" is a stocks-only parameter — the crypto endpoint rejects it
-    if (!isCrypto) params.set("adjustment", "raw");
+    if (!isCrypto) {
+      params.set("adjustment", "raw");
+      // SIP feed includes extended-hours (pre-market & after-hours) bars for stocks
+      params.set("feed", feed ?? "sip");
+    }
 
     if (start) {
       params.set("start", start);
@@ -98,6 +142,8 @@ router.get("/market/quote", async (req, res) => {
     const upperSymbol = symbol.toUpperCase();
     const isCrypto = isCryptoSymbol(upperSymbol);
 
+    const session = getMarketSession();
+
     if (isCrypto) {
       // ── Crypto: use v1beta3 snapshot which includes prevDailyBar ────────────
       const cryptoSymbol = normalizeCryptoSymbol(upperSymbol);
@@ -117,7 +163,7 @@ router.get("/market/quote", async (req, res) => {
         return;
       }
 
-      // Current price: latest trade > daily bar close > prev daily bar close
+      // Crypto trades 24/7 — always show latest trade vs yesterday's close
       const price = snap.latestTrade?.p ?? snap.dailyBar?.c ?? snap.prevDailyBar?.c ?? 0;
       const prevClose = snap.prevDailyBar?.c ?? snap.dailyBar?.o ?? price;
       const change = price - prevClose;
@@ -132,6 +178,7 @@ router.get("/market/quote", async (req, res) => {
         high:   snap.dailyBar?.h   ?? 0,
         low:    snap.dailyBar?.l   ?? 0,
         volume: snap.dailyBar?.v   ?? 0,
+        session: "regular" as MarketSession, // crypto is always "open"
         timestamp: snap.latestTrade?.t ?? snap.dailyBar?.t ?? new Date().toISOString(),
       });
     } else {
@@ -146,10 +193,17 @@ router.get("/market/quote", async (req, res) => {
 
       const snap = await response.json() as any;
 
-      // Current price: latest trade > daily bar close
+      // Latest trade price — reflects extended hours when applicable
       const price = snap.latestTrade?.p ?? snap.dailyBar?.c ?? 0;
-      // Previous close is prevDailyBar.c; fall back to dailyBar open if missing
-      const prevClose = snap.prevDailyBar?.c ?? snap.dailyBar?.o ?? price;
+
+      // Change base depends on session:
+      //   after-hours → compare vs today's regular close (dailyBar.c)
+      //   pre / regular / closed → compare vs yesterday's close (prevDailyBar.c)
+      const todayClose = snap.dailyBar?.c ?? null;
+      const prevClose = session === "after" && todayClose !== null
+        ? todayClose
+        : (snap.prevDailyBar?.c ?? snap.dailyBar?.o ?? price);
+
       const change = price - prevClose;
       const changePercent = prevClose !== 0 ? (change / prevClose) * 100 : 0;
 
@@ -162,6 +216,7 @@ router.get("/market/quote", async (req, res) => {
         high:   snap.dailyBar?.h   ?? 0,
         low:    snap.dailyBar?.l   ?? 0,
         volume: snap.dailyBar?.v   ?? 0,
+        session,
         timestamp: snap.latestTrade?.t ?? snap.dailyBar?.t ?? new Date().toISOString(),
       });
     }

@@ -9,6 +9,22 @@ import {
   RANGE_LABELS,
 } from "@/lib/ranges";
 
+type MarketSession = "pre" | "regular" | "after" | "closed";
+
+function SessionBadge({ session }: { session?: MarketSession }) {
+  if (!session || session === "regular") return null;
+  const cfg = {
+    pre:    { label: "PRE",    cls: "bg-[#f59e0b]/15 text-[#f59e0b] border-[#f59e0b]/30" },
+    after:  { label: "AH",     cls: "bg-[#818cf8]/15 text-[#818cf8] border-[#818cf8]/30" },
+    closed: { label: "CLOSED", cls: "bg-[#4c525e]/20 text-[#787b86] border-[#4c525e]/40" },
+  }[session];
+  return (
+    <span className={`self-center text-[9px] font-bold tracking-widest px-1.5 py-0.5 rounded border ${cfg.cls}`}>
+      {cfg.label}
+    </span>
+  );
+}
+
 interface TopToolbarProps {
   symbol: string;
   selectedRange: RangeKey;
@@ -84,6 +100,7 @@ export function TopToolbar({
               {quote.change >= 0 ? "+" : ""}
               {quote.changePercent.toFixed(2)}%)
             </span>
+            <SessionBadge session={(quote as any).session} />
           </div>
         ) : (
           <div className="hidden sm:flex items-center gap-2">
