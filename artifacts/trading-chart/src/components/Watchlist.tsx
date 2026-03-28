@@ -1,6 +1,13 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
-import { Plus, X, Star, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { Plus, X, Star, GripVertical, ChevronDown, ChevronRight, Pencil, Check, Trash2 } from "lucide-react";
 import { useGetQuote } from "@workspace/api-client-react";
+import {
+  type WatchlistSection,
+  createSection,
+  loadSections,
+  saveSections,
+  syncSectionsWithSymbols,
+} from "@/lib/watchlist-sections";
 
 type MarketSession = "pre" | "regular" | "after" | "closed";
 
@@ -29,227 +36,391 @@ interface WatchlistProps {
 }
 
 const DEFAULT_SYMBOLS = ["AAPL", "MSFT", "TSLA", "GOOGL", "NVDA", "AMZN", "BTCUSD", "ETHUSD"];
-const SORT_STORAGE_KEY = "tradingTerminalWatchlistSort";
 
-type SortDir = "desc" | "asc" | null;
+interface DragState {
+  symbol: string;
+  fromSectionId: string;
+}
 
-function WatchlistItem({
+interface DropTarget {
+  sectionId: string;
+  insertBefore: string | null;
+}
+
+function SymbolRow({
   symbol,
   isActive,
+  isFaded,
+  isDragOver,
+  dragOverTop,
   onClick,
   onRemove,
-  onQuote,
+  onDragStart,
+  onDragEnd,
+  onDragOver,
+  onDrop,
 }: {
   symbol: string;
   isActive: boolean;
+  isFaded: boolean;
+  isDragOver: boolean;
+  dragOverTop: boolean;
   onClick: () => void;
   onRemove: () => void;
-  onQuote: (symbol: string, pct: number | null) => void;
+  onDragStart: (e: React.DragEvent) => void;
+  onDragEnd: (e: React.DragEvent) => void;
+  onDragOver: (e: React.DragEvent, symbol: string) => void;
+  onDrop: (e: React.DragEvent, sectionId?: string) => void;
 }) {
-  const { data: quote } = useGetQuote(
-    { symbol },
-    { query: { refetchInterval: 15000 } }
-  );
-
-  useEffect(() => {
-    onQuote(symbol, quote?.changePercent ?? null);
-  }, [symbol, quote?.changePercent]);
-
+  const { data: quote } = useGetQuote({ symbol }, { query: { refetchInterval: 15000 } });
   const isUp = (quote?.change ?? 0) >= 0;
 
   return (
     <div
-      className={`group relative flex items-center px-2 py-2.5 cursor-pointer transition-colors rounded-sm mx-1 my-0.5 ${
-        isActive
-          ? "bg-[#2962ff]/15 border border-[#2962ff]/30"
-          : "hover:bg-[#2a2e39] border border-transparent"
-      }`}
-      onClick={onClick}
+      className={`relative transition-opacity ${isFaded ? "opacity-30" : ""}`}
+      onDragOver={(e) => onDragOver(e, symbol)}
+      onDrop={(e) => onDrop(e)}
     >
-      {/* Symbol */}
-      <div className="flex-1 min-w-0 pr-1">
-        <span
-          className={`text-xs font-bold font-mono truncate block ${
-            isActive ? "text-[#2962ff]" : "text-[#d1d4dc]"
-          }`}
-        >
-          {symbol}
-        </span>
-      </div>
+      {/* Drop indicator line */}
+      {isDragOver && (
+        <div className={`absolute left-1 right-1 h-0.5 bg-[#2962ff] rounded-full z-10 pointer-events-none ${dragOverTop ? "top-0" : "bottom-0"}`} />
+      )}
 
-      {/* % Change — standalone column */}
-      <div className="w-[58px] shrink-0 text-right pr-2">
-        {quote ? (
-          <span
-            className={`text-xs font-semibold font-mono ${
-              isUp ? "text-[#26a69a]" : "text-[#ef5350]"
-            }`}
-          >
-            {isUp ? "+" : ""}
-            {quote.changePercent.toFixed(2)}%
-          </span>
-        ) : (
-          <span className="text-[10px] text-[#787b86]">—</span>
-        )}
-      </div>
-
-      {/* Price + session */}
-      <div className="w-[52px] shrink-0 text-right flex flex-col items-end gap-0.5">
-        {quote ? (
-          <>
-            <span className="text-xs font-mono font-bold text-[#d1d4dc]">
-              {quote.price < 1
-                ? quote.price.toFixed(4)
-                : quote.price.toFixed(2)}
-            </span>
-            <SessionPill session={(quote as any).session} />
-          </>
-        ) : (
-          <div className="ml-auto w-10 h-3 bg-[#2a2e39] rounded animate-pulse" />
-        )}
-      </div>
-
-      {/* Remove button — overlaps price on hover */}
-      <button
-        className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-[#ef5350] text-[#787b86] transition-all z-10 bg-[#131722]/80"
-        onClick={(e) => {
-          e.stopPropagation();
-          onRemove();
-        }}
-        title="Remove"
+      <div
+        className={`group flex items-center gap-1 px-1.5 py-2 cursor-pointer transition-colors rounded-sm mx-1 my-0.5 border ${
+          isActive
+            ? "bg-[#2962ff]/15 border-[#2962ff]/30"
+            : "hover:bg-[#2a2e39] border-transparent"
+        }`}
+        onClick={onClick}
       >
-        <X className="w-3 h-3" />
-      </button>
+        {/* Drag handle */}
+        <div
+          draggable
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          className="text-[#2a2e39] hover:text-[#4c525e] cursor-grab active:cursor-grabbing shrink-0 transition-colors p-0.5 -ml-0.5 touch-none"
+          onClick={(e) => e.stopPropagation()}
+          title="Drag to reorder"
+        >
+          <GripVertical className="w-3 h-3" />
+        </div>
+
+        {/* Symbol */}
+        <div className="flex-1 min-w-0">
+          <span className={`text-xs font-bold font-mono truncate block ${isActive ? "text-[#2962ff]" : "text-[#d1d4dc]"}`}>
+            {symbol}
+          </span>
+        </div>
+
+        {/* % Change */}
+        <div className="w-[54px] shrink-0 text-right pr-1.5">
+          {quote ? (
+            <span className={`text-xs font-semibold font-mono ${isUp ? "text-[#26a69a]" : "text-[#ef5350]"}`}>
+              {isUp ? "+" : ""}{quote.changePercent.toFixed(2)}%
+            </span>
+          ) : (
+            <span className="text-[10px] text-[#787b86]">—</span>
+          )}
+        </div>
+
+        {/* Price + session */}
+        <div className="w-[50px] shrink-0 text-right flex flex-col items-end gap-0.5">
+          {quote ? (
+            <>
+              <span className="text-xs font-mono font-bold text-[#d1d4dc]">
+                {quote.price < 1 ? quote.price.toFixed(4) : quote.price.toFixed(2)}
+              </span>
+              <SessionPill session={(quote as any).session} />
+            </>
+          ) : (
+            <div className="ml-auto w-10 h-3 bg-[#2a2e39] rounded animate-pulse" />
+          )}
+        </div>
+
+        {/* Remove */}
+        <button
+          className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-[#ef5350] text-[#787b86] transition-all z-10 bg-[#131722]/80"
+          onClick={(e) => { e.stopPropagation(); onRemove(); }}
+          title="Remove"
+        >
+          <X className="w-3 h-3" />
+        </button>
+      </div>
     </div>
   );
 }
 
-function loadSortDir(): SortDir {
-  try {
-    const v = localStorage.getItem(SORT_STORAGE_KEY);
-    if (v === "asc" || v === "desc") return v;
-  } catch { /* ignore */ }
-  return null;
-}
+function SectionHeader({
+  section,
+  onToggleCollapse,
+  onRename,
+  onDelete,
+  onAddSymbol,
+}: {
+  section: WatchlistSection;
+  onToggleCollapse: () => void;
+  onRename: (name: string) => void;
+  onDelete: () => void;
+  onAddSymbol: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(section.name);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-export function Watchlist({
-  symbols,
-  activeSymbol,
-  onSelect,
-  onAdd,
-  onRemove,
-  onSearchOpen,
-  fullHeight,
-}: WatchlistProps) {
-  const [sortDir, setSortDir] = useState<SortDir>(loadSortDir);
-  const [quotesMap, setQuotesMap] = useState<Record<string, number | null>>({});
+  useEffect(() => {
+    if (editing) {
+      setDraft(section.name);
+      setTimeout(() => { inputRef.current?.focus(); inputRef.current?.select(); }, 30);
+    }
+  }, [editing]);
 
-  const handleQuoteUpdate = useCallback((symbol: string, pct: number | null) => {
-    setQuotesMap((prev) => {
-      if (prev[symbol] === pct) return prev;
-      return { ...prev, [symbol]: pct };
-    });
-  }, []);
-
-  const cycleSortDir = useCallback(() => {
-    setSortDir((prev) => {
-      const next: SortDir = prev === null ? "desc" : prev === "desc" ? "asc" : null;
-      try {
-        if (next === null) localStorage.removeItem(SORT_STORAGE_KEY);
-        else localStorage.setItem(SORT_STORAGE_KEY, next);
-      } catch { /* ignore */ }
-      return next;
-    });
-  }, []);
-
-  const sortedSymbols = useMemo(() => {
-    if (!sortDir) return symbols;
-    return [...symbols].sort((a, b) => {
-      const pa = quotesMap[a] ?? (sortDir === "desc" ? -Infinity : Infinity);
-      const pb = quotesMap[b] ?? (sortDir === "desc" ? -Infinity : Infinity);
-      return sortDir === "desc" ? pb - pa : pa - pb;
-    });
-  }, [symbols, sortDir, quotesMap]);
-
-  const SortIcon = sortDir === "desc" ? ChevronDown : sortDir === "asc" ? ChevronUp : ChevronsUpDown;
+  const commit = () => {
+    const trimmed = draft.trim();
+    if (trimmed) onRename(trimmed);
+    setEditing(false);
+  };
 
   return (
-    <div
-      className={`flex flex-col bg-[#131722] overflow-hidden ${
-        fullHeight ? "h-full" : "w-52 shrink-0 border-l border-[#2a2e39] h-full"
-      }`}
-    >
+    <div className="flex items-center gap-0.5 px-2 py-1 group/header border-t border-[#2a2e39]/60 mt-1 first:border-t-0 first:mt-0">
+      <button onClick={onToggleCollapse} className="text-[#4c525e] hover:text-[#787b86] transition-colors shrink-0 p-0.5">
+        {section.collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+      </button>
+
+      {editing ? (
+        <input
+          ref={inputRef}
+          className="flex-1 min-w-0 bg-[#1e2030] text-[#d1d4dc] text-[10px] font-semibold tracking-widest uppercase rounded px-1 py-0.5 outline-none border border-[#2962ff]/50"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") setEditing(false); }}
+          onBlur={commit}
+        />
+      ) : (
+        <span
+          className="flex-1 min-w-0 text-[10px] font-semibold text-[#787b86] tracking-widest uppercase truncate cursor-pointer hover:text-[#d1d4dc] transition-colors"
+          onDoubleClick={() => setEditing(true)}
+          title="Double-click to rename"
+        >
+          {section.name}
+        </span>
+      )}
+
+      <div className="flex items-center gap-0.5 opacity-0 group-hover/header:opacity-100 transition-opacity">
+        {editing ? (
+          <button onClick={commit} className="p-0.5 rounded text-[#26a69a] hover:text-[#26a69a]/80" title="Save"><Check className="w-3 h-3" /></button>
+        ) : (
+          <button onClick={() => setEditing(true)} className="p-0.5 rounded text-[#4c525e] hover:text-[#787b86]" title="Rename"><Pencil className="w-3 h-3" /></button>
+        )}
+        <button onClick={onAddSymbol} className="p-0.5 rounded text-[#4c525e] hover:text-[#787b86]" title="Add symbol"><Plus className="w-3 h-3" /></button>
+        <button onClick={onDelete} className="p-0.5 rounded text-[#4c525e] hover:text-[#ef5350]" title="Delete section"><Trash2 className="w-3 h-3" /></button>
+      </div>
+    </div>
+  );
+}
+
+export function Watchlist({ symbols, activeSymbol, onSelect, onAdd, onRemove, onSearchOpen, fullHeight }: WatchlistProps) {
+  const [sections, setSections] = useState<WatchlistSection[]>(() => loadSections(symbols));
+  const dragState = useRef<DragState | null>(null);
+  const [draggingSymbol, setDraggingSymbol] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
+
+  useEffect(() => {
+    setSections((prev) => {
+      const next = syncSectionsWithSymbols(prev, symbols);
+      if (JSON.stringify(next) === JSON.stringify(prev)) return prev;
+      return next;
+    });
+  }, [symbols]);
+
+  useEffect(() => { saveSections(sections); }, [sections]);
+
+  const addSection = useCallback(() => {
+    setSections((prev) => [...prev, createSection(`Group ${prev.length + 1}`)]);
+  }, []);
+
+  const renameSection = useCallback((id: string, name: string) => {
+    setSections((prev) => prev.map((s) => s.id === id ? { ...s, name } : s));
+  }, []);
+
+  const deleteSection = useCallback((id: string) => {
+    setSections((prev) => {
+      const target = prev.find((s) => s.id === id);
+      if (!target) return prev;
+      const orphaned = target.symbols;
+      const remaining = prev.filter((s) => s.id !== id);
+      if (remaining.length === 0) { orphaned.forEach(onRemove); return []; }
+      return [{ ...remaining[0], symbols: [...remaining[0].symbols, ...orphaned] }, ...remaining.slice(1)];
+    });
+  }, [onRemove]);
+
+  const toggleCollapse = useCallback((id: string) => {
+    setSections((prev) => prev.map((s) => s.id === id ? { ...s, collapsed: !s.collapsed } : s));
+  }, []);
+
+  const handleDragStart = useCallback((e: React.DragEvent, symbol: string, fromSectionId: string) => {
+    dragState.current = { symbol, fromSectionId };
+    setDraggingSymbol(symbol);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", symbol);
+    // Custom ghost label
+    const ghost = document.createElement("div");
+    ghost.style.cssText = "position:fixed;top:-9999px;left:-9999px;padding:4px 10px;background:#1e222d;color:#d1d4dc;font-size:12px;font-family:monospace;border:1px solid #2962ff55;border-radius:4px;white-space:nowrap;";
+    ghost.textContent = symbol;
+    document.body.appendChild(ghost);
+    e.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, ghost.offsetHeight / 2);
+    setTimeout(() => document.body.removeChild(ghost), 0);
+  }, []);
+
+  const handleDragEnd = useCallback(() => {
+    dragState.current = null;
+    setDraggingSymbol(null);
+    setDropTarget(null);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent, sectionId: string, overSymbol: string | null) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    const ds = dragState.current;
+    if (!ds) return;
+    if (overSymbol === ds.symbol) return;
+    setDropTarget({ sectionId, insertBefore: overSymbol });
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent, sectionId: string) => {
+    e.preventDefault();
+    const ds = dragState.current;
+    if (!ds) return;
+
+    const { symbol: draggedSym, fromSectionId } = ds;
+    const dt = dropTarget;
+
+    setSections((prev) => {
+      const next = prev.map((s) => ({ ...s, symbols: [...s.symbols] }));
+
+      // Remove from source
+      const srcIdx = next.findIndex((s) => s.id === fromSectionId);
+      if (srcIdx !== -1) next[srcIdx].symbols = next[srcIdx].symbols.filter((s) => s !== draggedSym);
+
+      // Insert into target
+      const dstIdx = next.findIndex((s) => s.id === sectionId);
+      if (dstIdx === -1) return prev;
+
+      const dst = next[dstIdx];
+      if (dt && dt.sectionId === sectionId && dt.insertBefore) {
+        const pos = dst.symbols.indexOf(dt.insertBefore);
+        if (pos === -1) dst.symbols.push(draggedSym);
+        else dst.symbols.splice(pos, 0, draggedSym);
+      } else {
+        dst.symbols.push(draggedSym);
+      }
+
+      return next;
+    });
+
+    setDropTarget(null);
+    dragState.current = null;
+  }, [dropTarget]);
+
+  const allSymbols = sections.flatMap((s) => s.symbols);
+  const hasAny = allSymbols.length > 0;
+
+  return (
+    <div className={`flex flex-col bg-[#131722] overflow-hidden ${fullHeight ? "h-full" : "w-52 shrink-0 border-l border-[#2a2e39] h-full"}`}>
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2.5 border-b border-[#2a2e39]">
+      <div className="flex items-center justify-between px-3 py-2.5 border-b border-[#2a2e39] shrink-0">
         <div className="flex items-center gap-1.5">
           <Star className="w-3.5 h-3.5 text-[#ff9800]" />
           <span className="text-xs font-semibold text-[#d1d4dc] tracking-wide">WATCHLIST</span>
         </div>
-        <button
-          className="w-6 h-6 flex items-center justify-center rounded hover:bg-[#2a2e39] text-[#787b86] hover:text-[#d1d4dc] transition-colors"
-          onClick={() => onSearchOpen()}
-          title="Add symbol"
-        >
-          <Plus className="w-3.5 h-3.5" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            className="w-6 h-6 flex items-center justify-center rounded hover:bg-[#2a2e39] text-[#787b86] hover:text-[#d1d4dc] transition-colors"
+            onClick={addSection}
+            title="New section"
+          >
+            <span className="text-[10px] font-bold leading-none pb-px">§</span>
+          </button>
+          <button
+            className="w-6 h-6 flex items-center justify-center rounded hover:bg-[#2a2e39] text-[#787b86] hover:text-[#d1d4dc] transition-colors"
+            onClick={() => onSearchOpen()}
+            title="Add symbol"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
 
       {/* Column headers */}
-      {symbols.length > 0 && (
-        <div className="flex items-center px-3 pt-1.5 pb-0.5 border-b border-[#2a2e39]/50">
-          <div className="flex-1 text-[9px] font-semibold text-[#4c525e] tracking-widest uppercase">
-            Symbol
-          </div>
-          <button
-            className={`w-[58px] shrink-0 flex items-center justify-end gap-0.5 pr-2 text-[9px] font-semibold tracking-widest uppercase transition-colors ${
-              sortDir ? "text-[#2962ff]" : "text-[#4c525e] hover:text-[#787b86]"
-            }`}
-            onClick={cycleSortDir}
-            title={
-              sortDir === null
-                ? "Sort by % change (high→low)"
-                : sortDir === "desc"
-                ? "Sort by % change (low→high)"
-                : "Clear sort"
-            }
-          >
-            <span>%</span>
-            <SortIcon className="w-2.5 h-2.5" />
-          </button>
-          <div className="w-[52px] shrink-0 text-right text-[9px] font-semibold text-[#4c525e] tracking-widest uppercase">
-            Price
-          </div>
+      {hasAny && (
+        <div className="flex items-center px-3 pt-1.5 pb-0.5 border-b border-[#2a2e39]/50 shrink-0">
+          <div className="w-5 shrink-0" />
+          <div className="flex-1 text-[9px] font-semibold text-[#4c525e] tracking-widest uppercase">Symbol</div>
+          <div className="w-[54px] shrink-0 text-right pr-1.5 text-[9px] font-semibold text-[#4c525e] tracking-widest uppercase">%</div>
+          <div className="w-[50px] shrink-0 text-right text-[9px] font-semibold text-[#4c525e] tracking-widest uppercase">Price</div>
         </div>
       )}
 
-      {/* Symbol list */}
+      {/* Content */}
       <div className="flex-1 overflow-y-auto py-1 scrollbar-thin">
-        {symbols.length === 0 ? (
+        {sections.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-32 gap-2">
             <Star className="w-6 h-6 text-[#2a2e39]" />
-            <p className="text-xs text-[#787b86] text-center">
-              No symbols yet.
-              <br />
-              Click + to add.
-            </p>
+            <p className="text-xs text-[#787b86] text-center">No symbols yet.<br />Click + to add.</p>
           </div>
         ) : (
-          sortedSymbols.map((sym) => (
-            <WatchlistItem
-              key={sym}
-              symbol={sym}
-              isActive={sym === activeSymbol}
-              onClick={() => onSelect(sym)}
-              onRemove={() => onRemove(sym)}
-              onQuote={handleQuoteUpdate}
-            />
+          sections.map((section) => (
+            <div
+              key={section.id}
+              onDragOver={(e) => { e.preventDefault(); if (!dragState.current) return; setDropTarget({ sectionId: section.id, insertBefore: null }); }}
+              onDrop={(e) => handleDrop(e, section.id)}
+            >
+              {sections.length > 1 && (
+                <SectionHeader
+                  section={section}
+                  onToggleCollapse={() => toggleCollapse(section.id)}
+                  onRename={(name) => renameSection(section.id, name)}
+                  onDelete={() => deleteSection(section.id)}
+                  onAddSymbol={() => onSearchOpen()}
+                />
+              )}
+
+              {!section.collapsed && (
+                <>
+                  {section.symbols.map((sym) => (
+                    <SymbolRow
+                      key={sym}
+                      symbol={sym}
+                      isActive={sym === activeSymbol}
+                      isFaded={sym === draggingSymbol}
+                      isDragOver={dropTarget?.sectionId === section.id && dropTarget?.insertBefore === sym}
+                      dragOverTop={true}
+                      onClick={() => onSelect(sym)}
+                      onRemove={() => onRemove(sym)}
+                      onDragStart={(e) => handleDragStart(e, sym, section.id)}
+                      onDragEnd={handleDragEnd}
+                      onDragOver={(e, s) => handleDragOver(e, section.id, s)}
+                      onDrop={(e) => handleDrop(e, section.id)}
+                    />
+                  ))}
+
+                  {section.symbols.length === 0 && (
+                    <div className="mx-2 my-1 px-3 py-2.5 border border-dashed border-[#2a2e39] rounded text-[10px] text-[#4c525e] text-center transition-colors"
+                      style={dropTarget?.sectionId === section.id ? { borderColor: "#2962ff55", color: "#2962ff77" } : {}}
+                    >
+                      Drop symbols here
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           ))
         )}
       </div>
 
-      {/* Footer: Add defaults */}
-      {symbols.length === 0 && (
-        <div className="border-t border-[#2a2e39] p-3">
+      {/* Add defaults footer */}
+      {!hasAny && sections.length > 0 && (
+        <div className="border-t border-[#2a2e39] p-3 shrink-0">
           <button
             className="w-full text-xs text-[#787b86] hover:text-[#d1d4dc] transition-colors text-center"
             onClick={() => DEFAULT_SYMBOLS.forEach(onAdd)}

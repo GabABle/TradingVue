@@ -26,8 +26,6 @@ export function SymbolSearch({ open, initialQuery = "", onClose, onSelect }: Sym
   useEffect(() => {
     if (open) {
       setQuery(initialQuery);
-      const t = setTimeout(() => inputRef.current?.focus(), 60);
-      return () => clearTimeout(t);
     }
   }, [open, initialQuery]);
 
@@ -53,6 +51,12 @@ export function SymbolSearch({ open, initialQuery = "", onClose, onSelect }: Sym
       <DialogContent
         className="p-0 gap-0 bg-[#1e222d] border-[#2a2e39] shadow-2xl max-w-lg w-full overflow-hidden rounded-xl [&>button]:text-[#787b86] [&>button]:hover:text-[#d1d4dc]"
         aria-describedby={undefined}
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          inputRef.current?.focus();
+          const len = inputRef.current?.value.length ?? 0;
+          inputRef.current?.setSelectionRange(len, len);
+        }}
       >
         {/* Search Input Row */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-[#2a2e39]">
