@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useGetBars, useGetQuote } from "@workspace/api-client-react";
 import { ChartWidget } from "@/components/ChartWidget";
 import { TopToolbar } from "@/components/TopToolbar";
@@ -86,9 +86,10 @@ export default function TradingTerminal() {
     setInterval(newInterval);
   }, []);
 
-  // Cache-bust changes every 5 minutes — makes each URL unique so proxy caches never
-  // serve stale bars across sessions even if they ignore no-cache/no-store directives
-  const cacheBust = Math.floor(Date.now() / 300_000);
+  // A unique timestamp generated each time symbol/interval/range changes.
+  // Using Date.now() ensures each combination gets a URL the proxy has NEVER cached,
+  // completely bypassing any stale proxy cache regardless of response headers.
+  const cacheBust = useMemo(() => Date.now(), [symbol, interval, selectedRange]);
   const { data: barsData, isLoading, error } = useGetBars(
     {
       symbol,
