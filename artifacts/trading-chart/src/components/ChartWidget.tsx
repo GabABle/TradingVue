@@ -19,7 +19,7 @@ interface ChartWidgetProps {
   showStoch: boolean;
   smaPeriod: number | null;
   emaPeriod: number | null;
-  preMarketPrice?: number | null;
+  referencePrice?: number | null;
 }
 
 // ─── Safe runner ───────────────────────────────────────────────────────────────
@@ -70,7 +70,7 @@ const BASE_CHART_OPTIONS = {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function ChartWidget({
-  data, showRSI, showStoch, smaPeriod, emaPeriod, preMarketPrice,
+  data, showRSI, showStoch, smaPeriod, emaPeriod, referencePrice,
 }: ChartWidgetProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const rsiContainerRef   = useRef<HTMLDivElement>(null);
@@ -137,27 +137,27 @@ export function ChartWidget({
     };
   }, []);
 
-  // ── Pre-market price line (yellow dashed) ───────────────────────────────
+  // ── Reference price line (yellow dashed — previous close during PRE/AFTER) ─
   useEffect(() => {
     const series = candleRef.current;
     if (!series) return;
     // Remove previous line
     if (pmPriceLineRef.current) {
-      safe(() => series.removePriceLine(pmPriceLineRef.current!), 'pm-line-remove');
+      safe(() => series.removePriceLine(pmPriceLineRef.current!), 'ref-line-remove');
       pmPriceLineRef.current = null;
     }
-    if (preMarketPrice == null) return;
+    if (referencePrice == null) return;
     safe(() => {
       pmPriceLineRef.current = series.createPriceLine({
-        price: preMarketPrice,
+        price: referencePrice,
         color: '#f59e0b',
         lineWidth: 1,
         lineStyle: 2,
         axisLabelVisible: true,
-        title: 'Pre-mkt',
+        title: 'Close',
       });
-    }, 'pm-line-create');
-  }, [preMarketPrice]);
+    }, 'ref-line-create');
+  }, [referencePrice]);
 
   // ── RSI sub-chart ─────────────────────────────────────────────────────────
   useEffect(() => {

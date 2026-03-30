@@ -47,6 +47,11 @@ interface DropTarget {
   insertBefore: string | null;
 }
 
+function fmt(p: number | null | undefined): string {
+  if (p == null) return "—";
+  return p < 1 ? p.toFixed(4) : p.toFixed(2);
+}
+
 function SymbolRow({
   symbol,
   isActive,
@@ -73,7 +78,20 @@ function SymbolRow({
   onDrop: (e: React.DragEvent, sectionId?: string) => void;
 }) {
   const { data: quote } = useGetQuote({ symbol }, { query: { refetchInterval: 15000 } });
-  const isUp = (quote?.change ?? 0) >= 0;
+  const session   = (quote as any)?.session  as MarketSession | undefined;
+  const prevClose = (quote as any)?.prevClose    as number | null | undefined;
+  const regularClose = (quote as any)?.regularClose as number | null | undefined;
+  const isUp = (quote?.changePercent ?? 0) >= 0;
+
+  // Primary "close" column: the last regular-session reference price
+  const closePrice: number | null | undefined =
+    session === "pre"   ? prevClose :
+    session === "after" ? regularClose :
+    quote?.price;
+
+  // Extended-hours column: the current pre/after price (shown only when live extended session)
+  const extPrice: number | null =
+    session === "pre" || session === "after" ? (quote?.price ?? null) : null;
 
   return (
     <div
@@ -113,10 +131,10 @@ function SymbolRow({
           </span>
         </div>
 
-        {/* % Change */}
-        <div className="w-[54px] shrink-0 text-right pr-1.5">
+        {/* % Change (always the extended-hours change during PRE/AFTER, else day change) */}
+        <div className="w-[46px] shrink-0 text-right">
           {quote ? (
-            <span className={`text-xs font-semibold font-mono ${isUp ? "text-[#26a69a]" : "text-[#ef5350]"}`}>
+            <span className={`text-[11px] font-semibold font-mono ${isUp ? "text-[#26a69a]" : "text-[#ef5350]"}`}>
               {isUp ? "+" : ""}{quote.changePercent.toFixed(2)}%
             </span>
           ) : (
@@ -124,18 +142,24 @@ function SymbolRow({
           )}
         </div>
 
-        {/* Price + session */}
-        <div className="w-[50px] shrink-0 text-right flex flex-col items-end gap-0.5">
+        {/* Regular close price */}
+        <div className="w-[46px] shrink-0 text-right">
           {quote ? (
-            <>
-              <span className="text-xs font-mono font-bold text-[#d1d4dc]">
-                {quote.price < 1 ? quote.price.toFixed(4) : quote.price.toFixed(2)}
-              </span>
-              <SessionPill session={(quote as any).session} />
-            </>
+            <span className="text-[11px] font-mono font-bold text-[#d1d4dc]">
+              {fmt(closePrice)}
+            </span>
           ) : (
-            <div className="ml-auto w-10 h-3 bg-[#2a2e39] rounded animate-pulse" />
+            <div className="ml-auto w-9 h-3 bg-[#2a2e39] rounded animate-pulse" />
           )}
+        </div>
+
+        {/* Extended-hours price (PRE=amber, AH=indigo; blank for regular/closed) */}
+        <div className="w-[40px] shrink-0 text-right">
+          {extPrice != null ? (
+            <span className={`text-[11px] font-mono font-semibold ${session === "pre" ? "text-[#f59e0b]" : "text-[#818cf8]"}`}>
+              {fmt(extPrice)}
+            </span>
+          ) : null}
         </div>
 
         {/* Remove */}
@@ -326,7 +350,7 @@ export function Watchlist({ symbols, activeSymbol, onSelect, onAdd, onRemove, on
   const hasAny = allSymbols.length > 0;
 
   return (
-    <div className={`flex flex-col bg-[#131722] overflow-hidden ${fullHeight ? "h-full" : "w-52 shrink-0 border-l border-[#2a2e39] h-full"}`}>
+    <div className={`flex flex-col bg-[#131722] overflow-hidden ${fullHeight ? "h-full" : "w-60 shrink-0 border-l border-[#2a2e39] h-full"}`}>
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-[#2a2e39] shrink-0">
         <div className="flex items-center gap-1.5">
@@ -356,8 +380,9 @@ export function Watchlist({ symbols, activeSymbol, onSelect, onAdd, onRemove, on
         <div className="flex items-center px-3 pt-1.5 pb-0.5 border-b border-[#2a2e39]/50 shrink-0">
           <div className="w-5 shrink-0" />
           <div className="flex-1 text-[9px] font-semibold text-[#4c525e] tracking-widest uppercase">Symbol</div>
-          <div className="w-[54px] shrink-0 text-right pr-1.5 text-[9px] font-semibold text-[#4c525e] tracking-widest uppercase">%</div>
-          <div className="w-[50px] shrink-0 text-right text-[9px] font-semibold text-[#4c525e] tracking-widest uppercase">Price</div>
+          <div className="w-[46px] shrink-0 text-right text-[9px] font-semibold text-[#4c525e] tracking-widest uppercase">%</div>
+          <div className="w-[46px] shrink-0 text-right text-[9px] font-semibold text-[#4c525e] tracking-widest uppercase">Close</div>
+          <div className="w-[40px] shrink-0 text-right text-[9px] font-semibold text-[#f59e0b]/70 tracking-widest uppercase">Ext</div>
         </div>
       )}
 

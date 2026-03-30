@@ -232,16 +232,19 @@ router.get("/market/quote", async (req, res) => {
       // Latest trade price — reflects extended hours when applicable
       const price = snap.latestTrade?.p ?? snap.dailyBar?.c ?? 0;
 
+      // Clean references for the frontend
+      const prevClose: number | null    = snap.prevDailyBar?.c ?? null;
+      const regularClose: number | null = snap.dailyBar?.c     ?? null;
+
       // Change base depends on session:
       //   after-hours → compare vs today's regular close (dailyBar.c)
       //   pre / regular / closed → compare vs yesterday's close (prevDailyBar.c)
-      const todayClose = snap.dailyBar?.c ?? null;
-      const prevClose = session === "after" && todayClose !== null
-        ? todayClose
-        : (snap.prevDailyBar?.c ?? snap.dailyBar?.o ?? price);
+      const changeBase = session === "after" && regularClose !== null
+        ? regularClose
+        : (prevClose ?? snap.dailyBar?.o ?? price);
 
-      const change = price - prevClose;
-      const changePercent = prevClose !== 0 ? (change / prevClose) * 100 : 0;
+      const change = price - changeBase;
+      const changePercent = changeBase !== 0 ? (change / changeBase) * 100 : 0;
 
       res.json({
         symbol: upperSymbol,
@@ -253,6 +256,8 @@ router.get("/market/quote", async (req, res) => {
         low:    snap.dailyBar?.l   ?? 0,
         volume: snap.dailyBar?.v   ?? 0,
         session,
+        prevClose,
+        regularClose,
         preMarketPrice,
         timestamp: snap.latestTrade?.t ?? snap.dailyBar?.t ?? new Date().toISOString(),
       });

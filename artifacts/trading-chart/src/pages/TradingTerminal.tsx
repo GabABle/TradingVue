@@ -94,7 +94,14 @@ export default function TradingTerminal() {
   });
 
   const { data: quoteData } = useGetQuote({ symbol });
-  const preMarketPrice: number | null = (quoteData as any)?.preMarketPrice ?? null;
+  const _session      = (quoteData as any)?.session      as string | undefined;
+  const _prevClose    = (quoteData as any)?.prevClose    as number | null | undefined;
+  const _regularClose = (quoteData as any)?.regularClose as number | null | undefined;
+  // Yellow reference line: yesterday's close during PRE, today's regular close during AFTER
+  const referencePrice: number | null =
+    _session === "pre"   ? (_prevClose    ?? null) :
+    _session === "after" ? (_regularClose ?? null) :
+    null;
 
   // Keyboard shortcuts: any letter key opens symbol search
   useEffect(() => {
@@ -180,7 +187,7 @@ export default function TradingTerminal() {
                 showStoch={showStoch}
                 smaPeriod={smaPeriod}
                 emaPeriod={emaPeriod}
-                preMarketPrice={preMarketPrice}
+                referencePrice={referencePrice}
               />
 
               {/* Watchlist star */}
