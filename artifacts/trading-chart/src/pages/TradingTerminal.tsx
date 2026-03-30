@@ -104,7 +104,13 @@ export default function TradingTerminal() {
     null;
   // Amber/indigo EXT line: current extended-hours price
   const _extSession = (_session === "pre" || _session === "after") ? _session : null;
-  const _extPrice: number | null = _extSession ? ((quoteData as any)?.price ?? null) : null;
+  const _preMarketPrice = (quoteData as any)?.preMarketPrice as number | null | undefined;
+  const _extPrice: number | null =
+    _extSession === "pre"
+      ? (_preMarketPrice ?? null)                 // only show PRE line if actual pre-market bars exist
+      : _extSession === "after"
+        ? ((quoteData as any)?.price ?? null)     // after-hours: latestTrade is a post-market trade
+        : null;
 
   // Keyboard shortcuts: any letter key opens symbol search
   useEffect(() => {
