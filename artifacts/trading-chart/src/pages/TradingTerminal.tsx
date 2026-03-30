@@ -86,12 +86,17 @@ export default function TradingTerminal() {
     setInterval(newInterval);
   }, []);
 
-  const { data: barsData, isLoading, error } = useGetBars({
-    symbol,
-    timeframe: interval,
-    start: getRangeStart(selectedRange),
-    limit: 2000,
-  });
+  const { data: barsData, isLoading, error } = useGetBars(
+    {
+      symbol,
+      timeframe: interval,
+      start: getRangeStart(selectedRange),
+      limit: 2000,
+    },
+    // gcTime: 0 evicts the cache immediately when this query unmounts (symbol/range change)
+    // so the chart never shows bars from a previous session as "current"
+    { query: { gcTime: 0 } as any },
+  );
 
   const { data: quoteData } = useGetQuote({ symbol });
   const _session      = (quoteData as any)?.session      as string | undefined;
