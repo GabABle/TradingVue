@@ -55,6 +55,28 @@ function nthSundayOfMonth(year: number, month: number, n: number): Date {
   return new Date(Date.UTC(year, month, 1 + firstSunday + (n - 1) * 7, 7, 0, 0)); // 2:00 AM ET = 7 UTC
 }
 
+// Returns today's pre-market window (4:00–9:30 AM ET) in UTC ISO strings
+function getPreMarketWindow(): { start: string; end: string } {
+  const now = new Date();
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000;
+  const year = now.getUTCFullYear();
+  const dstStart = nthSundayOfMonth(year, 2, 2);
+  const dstEnd   = nthSundayOfMonth(year, 10, 1);
+  const isDST = now >= dstStart && now < dstEnd;
+  const offsetHours = isDST ? 4 : 5;
+  const offsetMs = -offsetHours * 3_600_000;
+  const etDate = new Date(utcMs + offsetMs);
+
+  const y  = etDate.getFullYear();
+  const mo = etDate.getMonth();
+  const d  = etDate.getDate();
+
+  // 4:00 AM ET → UTC;  9:30 AM ET → UTC
+  const startUTC = new Date(Date.UTC(y, mo, d, 4 + offsetHours, 0, 0));
+  const endUTC   = new Date(Date.UTC(y, mo, d, 9 + offsetHours, 30, 0));
+  return { start: startUTC.toISOString(), end: endUTC.toISOString() };
+}
+
 router.get("/market/bars", async (req, res) => {
   try {
     const { symbol, timeframe, start, end, limit = "200", feed } = req.query as Record<string, string>;
@@ -182,16 +204,30 @@ router.get("/market/quote", async (req, res) => {
         timestamp: snap.latestTrade?.t ?? snap.dailyBar?.t ?? new Date().toISOString(),
       });
     } else {
-      // ── Equity: use snapshot endpoint which includes prevDailyBar ───────────
-      const url = `${DATA_BASE_URL}/stocks/${upperSymbol}/snapshot`;
-      const response = await fetch(url, { headers: alpacaHeaders() });
+      // ── Equity: snapshot + today's pre-market bars (in parallel) ────────────
+      const snapUrl = `${DATA_BASE_URL}/stocks/${upperSymbol}/snapshot`;
+      const pm = getPreMarketWindow();
+      const pmUrl = `${DATA_BASE_URL}/stocks/${upperSymbol}/bars?timeframe=1Min&start=${encodeURIComponent(pm.start)}&end=${encodeURIComponent(pm.end)}&feed=sip&sort=desc&limit=1&adjustment=raw`;
 
-      if (!response.ok) {
-        res.status(response.status).json({ error: "Not Found", message: `No quote found for ${upperSymbol}` });
+      const [snapResponse, pmResponse] = await Promise.all([
+        fetch(snapUrl, { headers: alpacaHeaders() }),
+        fetch(pmUrl,  { headers: alpacaHeaders() }),
+      ]);
+
+      if (!snapResponse.ok) {
+        res.status(snapResponse.status).json({ error: "Not Found", message: `No quote found for ${upperSymbol}` });
         return;
       }
 
-      const snap = await response.json() as any;
+      const snap = await snapResponse.json() as any;
+
+      // Pre-market last price (null if no pre-market trading today)
+      let preMarketPrice: number | null = null;
+      if (pmResponse.ok) {
+        const pmData = await pmResponse.json() as any;
+        const pmBars: any[] = pmData.bars ?? [];
+        if (pmBars.length > 0) preMarketPrice = pmBars[0].c;
+      }
 
       // Latest trade price — reflects extended hours when applicable
       const price = snap.latestTrade?.p ?? snap.dailyBar?.c ?? 0;
@@ -217,6 +253,7 @@ router.get("/market/quote", async (req, res) => {
         low:    snap.dailyBar?.l   ?? 0,
         volume: snap.dailyBar?.v   ?? 0,
         session,
+        preMarketPrice,
         timestamp: snap.latestTrade?.t ?? snap.dailyBar?.t ?? new Date().toISOString(),
       });
     }

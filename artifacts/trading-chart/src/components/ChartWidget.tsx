@@ -19,6 +19,7 @@ interface ChartWidgetProps {
   showStoch: boolean;
   smaPeriod: number | null;
   emaPeriod: number | null;
+  preMarketPrice?: number | null;
 }
 
 // ─── Safe runner ───────────────────────────────────────────────────────────────
@@ -69,7 +70,7 @@ const BASE_CHART_OPTIONS = {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function ChartWidget({
-  data, showRSI, showStoch, smaPeriod, emaPeriod,
+  data, showRSI, showStoch, smaPeriod, emaPeriod, preMarketPrice,
 }: ChartWidgetProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const rsiContainerRef   = useRef<HTMLDivElement>(null);
@@ -79,13 +80,14 @@ export function ChartWidget({
   const rsiChartRef   = useRef<IChartApi | null>(null);
   const stochChartRef = useRef<IChartApi | null>(null);
 
-  const candleRef  = useRef<ISeriesApi<'Candlestick'> | null>(null);
-  const volumeRef  = useRef<ISeriesApi<'Histogram'> | null>(null);
-  const smaRef     = useRef<ISeriesApi<'Line'> | null>(null);
-  const emaRef     = useRef<ISeriesApi<'Line'> | null>(null);
-  const rsiRef     = useRef<ISeriesApi<'Line'> | null>(null);
-  const stochKRef  = useRef<ISeriesApi<'Line'> | null>(null);
-  const stochDRef  = useRef<ISeriesApi<'Line'> | null>(null);
+  const candleRef      = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const volumeRef      = useRef<ISeriesApi<'Histogram'> | null>(null);
+  const smaRef         = useRef<ISeriesApi<'Line'> | null>(null);
+  const emaRef         = useRef<ISeriesApi<'Line'> | null>(null);
+  const rsiRef         = useRef<ISeriesApi<'Line'> | null>(null);
+  const stochKRef      = useRef<ISeriesApi<'Line'> | null>(null);
+  const stochDRef      = useRef<ISeriesApi<'Line'> | null>(null);
+  const pmPriceLineRef = useRef<any>(null);
 
   // ── Main chart: init once ────────────────────────────────────────────────
   useEffect(() => {
@@ -134,6 +136,28 @@ export function ChartWidget({
       emaRef.current       = null;
     };
   }, []);
+
+  // ── Pre-market price line (yellow dashed) ───────────────────────────────
+  useEffect(() => {
+    const series = candleRef.current;
+    if (!series) return;
+    // Remove previous line
+    if (pmPriceLineRef.current) {
+      safe(() => series.removePriceLine(pmPriceLineRef.current!), 'pm-line-remove');
+      pmPriceLineRef.current = null;
+    }
+    if (preMarketPrice == null) return;
+    safe(() => {
+      pmPriceLineRef.current = series.createPriceLine({
+        price: preMarketPrice,
+        color: '#f59e0b',
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: 'Pre-mkt',
+      });
+    }, 'pm-line-create');
+  }, [preMarketPrice]);
 
   // ── RSI sub-chart ─────────────────────────────────────────────────────────
   useEffect(() => {

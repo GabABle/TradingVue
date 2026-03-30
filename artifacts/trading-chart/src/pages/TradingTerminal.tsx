@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { useGetBars } from "@workspace/api-client-react";
+import { useGetBars, useGetQuote } from "@workspace/api-client-react";
 import { ChartWidget } from "@/components/ChartWidget";
 import { TopToolbar } from "@/components/TopToolbar";
 import { RightPanel } from "@/components/RightPanel";
@@ -93,6 +93,9 @@ export default function TradingTerminal() {
     limit: 2000,
   });
 
+  const { data: quoteData } = useGetQuote({ symbol });
+  const preMarketPrice: number | null = (quoteData as any)?.preMarketPrice ?? null;
+
   // Keyboard shortcuts: any letter key opens symbol search
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -177,6 +180,7 @@ export default function TradingTerminal() {
                 showStoch={showStoch}
                 smaPeriod={smaPeriod}
                 emaPeriod={emaPeriod}
+                preMarketPrice={preMarketPrice}
               />
 
               {/* Watchlist star */}
