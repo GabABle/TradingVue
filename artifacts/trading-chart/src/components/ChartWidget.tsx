@@ -20,6 +20,8 @@ interface ChartWidgetProps {
   smaPeriod: number | null;
   emaPeriod: number | null;
   referencePrice?: number | null;
+  extPrice?: number | null;
+  extSession?: "pre" | "after" | null;
 }
 
 // ─── Safe runner ───────────────────────────────────────────────────────────────
@@ -70,7 +72,7 @@ const BASE_CHART_OPTIONS = {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function ChartWidget({
-  data, showRSI, showStoch, smaPeriod, emaPeriod, referencePrice,
+  data, showRSI, showStoch, smaPeriod, emaPeriod, referencePrice, extPrice, extSession,
 }: ChartWidgetProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const rsiContainerRef   = useRef<HTMLDivElement>(null);
@@ -87,7 +89,8 @@ export function ChartWidget({
   const rsiRef         = useRef<ISeriesApi<'Line'> | null>(null);
   const stochKRef      = useRef<ISeriesApi<'Line'> | null>(null);
   const stochDRef      = useRef<ISeriesApi<'Line'> | null>(null);
-  const pmPriceLineRef = useRef<any>(null);
+  const pmPriceLineRef  = useRef<any>(null);
+  const extPriceLineRef = useRef<any>(null);
 
   // ── Main chart: init once ────────────────────────────────────────────────
   useEffect(() => {
@@ -158,6 +161,29 @@ export function ChartWidget({
       });
     }, 'ref-line-create');
   }, [referencePrice]);
+
+  // ── Extended-hours price line (amber=PRE / indigo=AH) ───────────────────
+  useEffect(() => {
+    const series = candleRef.current;
+    if (!series) return;
+    if (extPriceLineRef.current) {
+      safe(() => series.removePriceLine(extPriceLineRef.current!), 'ext-line-remove');
+      extPriceLineRef.current = null;
+    }
+    if (extPrice == null) return;
+    const color = extSession === "after" ? '#818cf8' : '#f59e0b';
+    const title = extSession === "after" ? 'AH' : 'PRE';
+    safe(() => {
+      extPriceLineRef.current = series.createPriceLine({
+        price: extPrice,
+        color,
+        lineWidth: 1,
+        lineStyle: 0,
+        axisLabelVisible: true,
+        title,
+      });
+    }, 'ext-line-create');
+  }, [extPrice, extSession]);
 
   // ── RSI sub-chart ─────────────────────────────────────────────────────────
   useEffect(() => {

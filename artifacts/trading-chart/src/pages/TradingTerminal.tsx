@@ -102,6 +102,9 @@ export default function TradingTerminal() {
     _session === "pre"   ? (_prevClose    ?? null) :
     _session === "after" ? (_regularClose ?? null) :
     null;
+  // Amber/indigo EXT line: current extended-hours price
+  const _extSession = (_session === "pre" || _session === "after") ? _session : null;
+  const _extPrice: number | null = _extSession ? ((quoteData as any)?.price ?? null) : null;
 
   // Keyboard shortcuts: any letter key opens symbol search
   useEffect(() => {
@@ -188,6 +191,8 @@ export default function TradingTerminal() {
                 smaPeriod={smaPeriod}
                 emaPeriod={emaPeriod}
                 referencePrice={referencePrice}
+                extPrice={_extPrice}
+                extSession={_extSession}
               />
 
               {/* Watchlist star */}
