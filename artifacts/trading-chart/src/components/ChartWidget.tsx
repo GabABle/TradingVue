@@ -153,7 +153,7 @@ export function ChartWidget({
     safe(() => {
       pmPriceLineRef.current = series.createPriceLine({
         price: referencePrice,
-        color: '#f59e0b',
+        color: '#d1d4dc',
         lineWidth: 1,
         lineStyle: 2,
         axisLabelVisible: true,
@@ -171,7 +171,7 @@ export function ChartWidget({
       extPriceLineRef.current = null;
     }
     if (extPrice == null) return;
-    const color = extSession === "after" ? '#818cf8' : '#f59e0b';
+    const color = '#f59e0b';
     const title = extSession === "after" ? 'AH' : 'PRE';
     safe(() => {
       extPriceLineRef.current = series.createPriceLine({
