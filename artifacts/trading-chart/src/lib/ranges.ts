@@ -1,4 +1,4 @@
-import type { GetBarsTimeframe } from "@workspace/api-client-react/src/generated/api.schemas";
+import type { GetBarsTimeframe } from "@workspace/api-client-react";
 
 export type RangeKey = "1D" | "1W" | "1M" | "3M" | "6M" | "1Y" | "5Y";
 export type IntervalKey = GetBarsTimeframe;

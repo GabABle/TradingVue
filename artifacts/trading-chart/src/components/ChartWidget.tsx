@@ -7,6 +7,7 @@ import {
   LineSeries,
   type IChartApi,
   type ISeriesApi,
+  type Time,
 } from 'lightweight-charts';
 import type { Bar } from "@workspace/api-client-react";
 import { calculateSMA, calculateEMA, calculateRSI, calculateStochastic } from '@/lib/indicators';
