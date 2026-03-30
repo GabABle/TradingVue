@@ -86,16 +86,21 @@ export default function TradingTerminal() {
     setInterval(newInterval);
   }, []);
 
+  // Cache-bust changes every 5 minutes — makes each URL unique so proxy caches never
+  // serve stale bars across sessions even if they ignore no-cache/no-store directives
+  const cacheBust = Math.floor(Date.now() / 300_000);
   const { data: barsData, isLoading, error } = useGetBars(
     {
       symbol,
       timeframe: interval,
       start: getRangeStart(selectedRange),
       limit: 2000,
+      ...({ _t: cacheBust } as any),
     },
-    // gcTime: 0 evicts the cache immediately when this query unmounts (symbol/range change)
-    // so the chart never shows bars from a previous session as "current"
-    { query: { gcTime: 0 } as any },
+    // gcTime: 0 evicts react-query cache immediately on unmount
+    // request.cache 'no-store' forces fetch() to bypass browser/proxy HTTP cache entirely
+    // refetchOnWindowFocus 'always' forces a fresh fetch when user focuses the tab
+    { query: { gcTime: 0, refetchOnWindowFocus: 'always' } as any, request: { cache: 'no-store' } },
   );
 
   const { data: quoteData } = useGetQuote({ symbol });
