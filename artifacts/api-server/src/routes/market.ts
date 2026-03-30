@@ -141,6 +141,7 @@ router.get("/market/bars", async (req, res) => {
       bars = data.bars ?? [];
     }
 
+    res.set('Cache-Control', 'no-cache');
     res.json({
       symbol: upperSymbol,
       bars,
