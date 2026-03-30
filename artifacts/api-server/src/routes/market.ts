@@ -232,16 +232,27 @@ router.get("/market/quote", async (req, res) => {
       // Latest trade price — reflects extended hours when applicable
       const price = snap.latestTrade?.p ?? snap.dailyBar?.c ?? 0;
 
-      // Clean references for the frontend
-      const prevClose: number | null    = snap.prevDailyBar?.c ?? null;
-      const regularClose: number | null = snap.dailyBar?.c     ?? null;
+      // Alpaca snapshot semantics:
+      //   PRE session    → dailyBar = last COMPLETED session (yesterday); prevDailyBar = day before that
+      //   REGULAR/AFTER  → dailyBar = today's session;                    prevDailyBar = yesterday
+      //
+      // "Last regular close" reference (used for PRE % change and Close line):
+      const lastRegularClose: number | null =
+        session === "pre"
+          ? (snap.dailyBar?.c  ?? null)        // during PRE, dailyBar IS yesterday's close
+          : (snap.prevDailyBar?.c ?? null);    // during REGULAR/AFTER, prevDailyBar is yesterday
 
-      // Change base depends on session:
-      //   after-hours → compare vs today's regular close (dailyBar.c)
-      //   pre / regular / closed → compare vs yesterday's close (prevDailyBar.c)
-      const changeBase = session === "after" && regularClose !== null
-        ? regularClose
-        : (prevClose ?? snap.dailyBar?.o ?? price);
+      // "Today's regular close" (used for AFTER % change and Close line)
+      const regularClose: number | null = snap.dailyBar?.c ?? null;
+
+      // Expose both so the frontend can choose the right reference per session
+      const prevClose: number | null = lastRegularClose;
+
+      // Change base: pre/closed → lastRegularClose, after → regularClose, regular → prevDailyBar.c
+      const changeBase =
+        session === "after" && regularClose !== null  ? regularClose :
+        session === "regular"                         ? (snap.prevDailyBar?.c ?? lastRegularClose ?? price) :
+                                                        (lastRegularClose ?? snap.dailyBar?.o ?? price);
 
       const change = price - changeBase;
       const changePercent = changeBase !== 0 ? (change / changeBase) * 100 : 0;
