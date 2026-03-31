@@ -37,12 +37,12 @@ interface WatchlistProps {
 
 const DEFAULT_SYMBOLS = ["AAPL", "MSFT", "TSLA", "GOOGL", "NVDA", "AMZN", "BTCUSD", "ETHUSD"];
 
-interface DragState {
+interface SymbolDragState {
   symbol: string;
   fromSectionId: string;
 }
 
-interface DropTarget {
+interface SymbolDropTarget {
   sectionId: string;
   insertBefore: string | null;
 }
@@ -83,13 +83,11 @@ function SymbolRow({
   const regularClose = (quote as any)?.regularClose as number | null | undefined;
   const isUp = (quote?.changePercent ?? 0) >= 0;
 
-  // Primary "close" column: the last regular-session reference price
   const closePrice: number | null | undefined =
     session === "pre"   ? prevClose :
     session === "after" ? regularClose :
     quote?.price;
 
-  // Extended-hours column: the current pre/after price (shown only when live extended session)
   const extPrice: number | null =
     session === "pre" || session === "after" ? (quote?.price ?? null) : null;
 
@@ -99,7 +97,6 @@ function SymbolRow({
       onDragOver={(e) => onDragOver(e, symbol)}
       onDrop={(e) => onDrop(e)}
     >
-      {/* Drop indicator line */}
       {isDragOver && (
         <div className={`absolute left-1 right-1 h-0.5 bg-[#2962ff] rounded-full z-10 pointer-events-none ${dragOverTop ? "top-0" : "bottom-0"}`} />
       )}
@@ -112,7 +109,6 @@ function SymbolRow({
         }`}
         onClick={onClick}
       >
-        {/* Drag handle */}
         <div
           draggable
           onDragStart={onDragStart}
@@ -124,14 +120,12 @@ function SymbolRow({
           <GripVertical className="w-3 h-3" />
         </div>
 
-        {/* Symbol */}
         <div className="flex-1 min-w-0">
           <span className={`text-xs font-bold font-mono truncate block ${isActive ? "text-[#2962ff]" : "text-[#d1d4dc]"}`}>
             {symbol}
           </span>
         </div>
 
-        {/* % Change (always the extended-hours change during PRE/AFTER, else day change) */}
         <div className="w-[46px] shrink-0 text-right">
           {quote ? (
             <span className={`text-[11px] font-semibold font-mono ${isUp ? "text-[#26a69a]" : "text-[#ef5350]"}`}>
@@ -142,7 +136,6 @@ function SymbolRow({
           )}
         </div>
 
-        {/* Regular close price */}
         <div className="w-[46px] shrink-0 text-right">
           {quote ? (
             <span className="text-[11px] font-mono font-bold text-[#d1d4dc]">
@@ -153,7 +146,6 @@ function SymbolRow({
           )}
         </div>
 
-        {/* Extended-hours price (PRE=amber, AH=indigo; blank for regular/closed) */}
         <div className="w-[40px] shrink-0 text-right">
           {extPrice != null ? (
             <span className={`text-[11px] font-mono font-semibold ${session === "pre" ? "text-[#f59e0b]" : "text-[#818cf8]"}`}>
@@ -162,7 +154,6 @@ function SymbolRow({
           ) : null}
         </div>
 
-        {/* Remove */}
         <button
           className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-[#ef5350] text-[#787b86] transition-all z-10 bg-[#131722]/80"
           onClick={(e) => { e.stopPropagation(); onRemove(); }}
@@ -181,12 +172,16 @@ function SectionHeader({
   onRename,
   onDelete,
   onAddSymbol,
+  onSectionDragStart,
+  onSectionDragEnd,
 }: {
   section: WatchlistSection;
   onToggleCollapse: () => void;
   onRename: (name: string) => void;
   onDelete: () => void;
   onAddSymbol: () => void;
+  onSectionDragStart: (e: React.DragEvent) => void;
+  onSectionDragEnd: (e: React.DragEvent) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(section.name);
@@ -207,6 +202,18 @@ function SectionHeader({
 
   return (
     <div className="flex items-center gap-0.5 px-2 py-1 group/header border-t border-[#2a2e39]/60 mt-1 first:border-t-0 first:mt-0">
+      {/* Section drag handle */}
+      <div
+        draggable
+        onDragStart={onSectionDragStart}
+        onDragEnd={onSectionDragEnd}
+        className="text-[#2a2e39] hover:text-[#4c525e] cursor-grab active:cursor-grabbing shrink-0 transition-colors p-0.5 touch-none"
+        onClick={(e) => e.stopPropagation()}
+        title="Drag to reorder section"
+      >
+        <GripVertical className="w-3 h-3" />
+      </div>
+
       <button onClick={onToggleCollapse} className="text-[#4c525e] hover:text-[#787b86] transition-colors shrink-0 p-0.5">
         {section.collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
       </button>
@@ -245,9 +252,16 @@ function SectionHeader({
 
 export function Watchlist({ symbols, activeSymbol, onSelect, onAdd, onRemove, onSearchOpen, fullHeight }: WatchlistProps) {
   const [sections, setSections] = useState<WatchlistSection[]>(() => loadSections(symbols));
-  const dragState = useRef<DragState | null>(null);
+
+  // --- Symbol drag state ---
+  const symbolDragState = useRef<SymbolDragState | null>(null);
   const [draggingSymbol, setDraggingSymbol] = useState<string | null>(null);
-  const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
+  const [symbolDropTarget, setSymbolDropTarget] = useState<SymbolDropTarget | null>(null);
+
+  // --- Section drag state ---
+  const sectionDragId = useRef<string | null>(null);
+  const [draggingSection, setDraggingSection] = useState<string | null>(null);
+  const [sectionDropBefore, setSectionDropBefore] = useState<string | null>(null); // sectionId to insert before, "__end__" for end
 
   useEffect(() => {
     setSections((prev) => {
@@ -282,12 +296,12 @@ export function Watchlist({ symbols, activeSymbol, onSelect, onAdd, onRemove, on
     setSections((prev) => prev.map((s) => s.id === id ? { ...s, collapsed: !s.collapsed } : s));
   }, []);
 
-  const handleDragStart = useCallback((e: React.DragEvent, symbol: string, fromSectionId: string) => {
-    dragState.current = { symbol, fromSectionId };
+  // ---- Symbol drag handlers ----
+  const handleSymbolDragStart = useCallback((e: React.DragEvent, symbol: string, fromSectionId: string) => {
+    symbolDragState.current = { symbol, fromSectionId };
     setDraggingSymbol(symbol);
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", symbol);
-    // Custom ghost label
     const ghost = document.createElement("div");
     ghost.style.cssText = "position:fixed;top:-9999px;left:-9999px;padding:4px 10px;background:#1e222d;color:#d1d4dc;font-size:12px;font-family:monospace;border:1px solid #2962ff55;border-radius:4px;white-space:nowrap;";
     ghost.textContent = symbol;
@@ -296,40 +310,37 @@ export function Watchlist({ symbols, activeSymbol, onSelect, onAdd, onRemove, on
     setTimeout(() => document.body.removeChild(ghost), 0);
   }, []);
 
-  const handleDragEnd = useCallback(() => {
-    dragState.current = null;
+  const handleSymbolDragEnd = useCallback(() => {
+    symbolDragState.current = null;
     setDraggingSymbol(null);
-    setDropTarget(null);
+    setSymbolDropTarget(null);
   }, []);
 
-  const handleDragOver = useCallback((e: React.DragEvent, sectionId: string, overSymbol: string | null) => {
+  const handleSymbolDragOver = useCallback((e: React.DragEvent, sectionId: string, overSymbol: string | null) => {
+    if (sectionDragId.current) return; // section drag in progress — ignore
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
-    const ds = dragState.current;
+    const ds = symbolDragState.current;
     if (!ds) return;
     if (overSymbol === ds.symbol) return;
-    setDropTarget({ sectionId, insertBefore: overSymbol });
+    setSymbolDropTarget({ sectionId, insertBefore: overSymbol });
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent, sectionId: string) => {
+  const handleSymbolDrop = useCallback((e: React.DragEvent, sectionId: string) => {
+    if (sectionDragId.current) return; // section drag in progress — ignore
     e.preventDefault();
-    const ds = dragState.current;
+    const ds = symbolDragState.current;
     if (!ds) return;
 
     const { symbol: draggedSym, fromSectionId } = ds;
-    const dt = dropTarget;
+    const dt = symbolDropTarget;
 
     setSections((prev) => {
       const next = prev.map((s) => ({ ...s, symbols: [...s.symbols] }));
-
-      // Remove from source
       const srcIdx = next.findIndex((s) => s.id === fromSectionId);
       if (srcIdx !== -1) next[srcIdx].symbols = next[srcIdx].symbols.filter((s) => s !== draggedSym);
-
-      // Insert into target
       const dstIdx = next.findIndex((s) => s.id === sectionId);
       if (dstIdx === -1) return prev;
-
       const dst = next[dstIdx];
       if (dt && dt.sectionId === sectionId && dt.insertBefore) {
         const pos = dst.symbols.indexOf(dt.insertBefore);
@@ -338,13 +349,72 @@ export function Watchlist({ symbols, activeSymbol, onSelect, onAdd, onRemove, on
       } else {
         dst.symbols.push(draggedSym);
       }
-
       return next;
     });
 
-    setDropTarget(null);
-    dragState.current = null;
-  }, [dropTarget]);
+    setSymbolDropTarget(null);
+    symbolDragState.current = null;
+  }, [symbolDropTarget]);
+
+  // ---- Section drag handlers ----
+  const handleSectionDragStart = useCallback((e: React.DragEvent, sectionId: string) => {
+    sectionDragId.current = sectionId;
+    setDraggingSection(sectionId);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", `section:${sectionId}`);
+    const ghost = document.createElement("div");
+    ghost.style.cssText = "position:fixed;top:-9999px;left:-9999px;padding:4px 10px;background:#1e222d;color:#787b86;font-size:10px;font-family:monospace;border:1px solid #2962ff55;border-radius:4px;text-transform:uppercase;letter-spacing:0.1em;";
+    const sec = sections.find((s) => s.id === sectionId);
+    ghost.textContent = sec?.name ?? "Section";
+    document.body.appendChild(ghost);
+    e.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, ghost.offsetHeight / 2);
+    setTimeout(() => document.body.removeChild(ghost), 0);
+  }, [sections]);
+
+  const handleSectionDragEnd = useCallback(() => {
+    sectionDragId.current = null;
+    setDraggingSection(null);
+    setSectionDropBefore(null);
+  }, []);
+
+  const handleSectionDragOver = useCallback((e: React.DragEvent, targetSectionId: string) => {
+    if (!sectionDragId.current) return;
+    if (sectionDragId.current === targetSectionId) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "move";
+    setSectionDropBefore(targetSectionId);
+  }, []);
+
+  const handleSectionListEndDragOver = useCallback((e: React.DragEvent) => {
+    if (!sectionDragId.current) return;
+    e.preventDefault();
+    setSectionDropBefore("__end__");
+  }, []);
+
+  const handleSectionDrop = useCallback((e: React.DragEvent, targetSectionId: string | "__end__") => {
+    const draggedId = sectionDragId.current;
+    if (!draggedId) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    setSections((prev) => {
+      if (draggedId === targetSectionId) return prev;
+      const without = prev.filter((s) => s.id !== draggedId);
+      const dragged = prev.find((s) => s.id === draggedId);
+      if (!dragged) return prev;
+      if (targetSectionId === "__end__") return [...without, dragged];
+      const idx = without.findIndex((s) => s.id === targetSectionId);
+      if (idx === -1) return [...without, dragged];
+      const result = [...without];
+      result.splice(idx, 0, dragged);
+      return result;
+    });
+
+    sectionDragId.current = null;
+    setDraggingSection(null);
+    setSectionDropBefore(null);
+  }, []);
 
   const allSymbols = sections.flatMap((s) => s.symbols);
   const hasAny = allSymbols.length > 0;
@@ -387,59 +457,98 @@ export function Watchlist({ symbols, activeSymbol, onSelect, onAdd, onRemove, on
       )}
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto py-1 scrollbar-thin">
+      <div
+        className="flex-1 overflow-y-auto py-1 scrollbar-thin"
+        onDragOver={handleSectionListEndDragOver}
+        onDrop={(e) => handleSectionDrop(e, "__end__")}
+      >
         {sections.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-32 gap-2">
             <Star className="w-6 h-6 text-[#2a2e39]" />
             <p className="text-xs text-[#787b86] text-center">No symbols yet.<br />Click + to add.</p>
           </div>
         ) : (
-          sections.map((section) => (
-            <div
-              key={section.id}
-              onDragOver={(e) => { e.preventDefault(); if (!dragState.current) return; setDropTarget({ sectionId: section.id, insertBefore: null }); }}
-              onDrop={(e) => handleDrop(e, section.id)}
-            >
-              {sections.length > 1 && (
-                <SectionHeader
-                  section={section}
-                  onToggleCollapse={() => toggleCollapse(section.id)}
-                  onRename={(name) => renameSection(section.id, name)}
-                  onDelete={() => deleteSection(section.id)}
-                  onAddSymbol={() => onSearchOpen()}
-                />
-              )}
+          sections.map((section) => {
+            const isSectionDragging = draggingSection === section.id;
+            const showDropLineBefore = sectionDropBefore === section.id && draggingSection !== section.id;
 
-              {!section.collapsed && (
-                <>
-                  {section.symbols.map((sym) => (
-                    <SymbolRow
-                      key={sym}
-                      symbol={sym}
-                      isActive={sym === activeSymbol}
-                      isFaded={sym === draggingSymbol}
-                      isDragOver={dropTarget?.sectionId === section.id && dropTarget?.insertBefore === sym}
-                      dragOverTop={true}
-                      onClick={() => onSelect(sym)}
-                      onRemove={() => onRemove(sym)}
-                      onDragStart={(e) => handleDragStart(e, sym, section.id)}
-                      onDragEnd={handleDragEnd}
-                      onDragOver={(e, s) => handleDragOver(e, section.id, s)}
-                      onDrop={(e) => handleDrop(e, section.id)}
-                    />
-                  ))}
+            return (
+              <div
+                key={section.id}
+                className={`relative transition-opacity ${isSectionDragging ? "opacity-30" : ""}`}
+                onDragOver={(e) => {
+                  if (sectionDragId.current) {
+                    handleSectionDragOver(e, section.id);
+                  } else {
+                    e.preventDefault();
+                    if (!symbolDragState.current) return;
+                    setSymbolDropTarget({ sectionId: section.id, insertBefore: null });
+                  }
+                }}
+                onDrop={(e) => {
+                  if (sectionDragId.current) {
+                    handleSectionDrop(e, section.id);
+                  } else {
+                    handleSymbolDrop(e, section.id);
+                  }
+                }}
+              >
+                {/* Section drop indicator line */}
+                {showDropLineBefore && (
+                  <div className="absolute left-2 right-2 top-0 h-0.5 bg-[#2962ff] rounded-full z-20 pointer-events-none" />
+                )}
 
-                  {section.symbols.length === 0 && (
-                    <div className="mx-2 my-1 px-3 py-2.5 border border-dashed border-[#2a2e39] rounded text-[10px] text-[#4c525e] text-center transition-colors"
-                      style={dropTarget?.sectionId === section.id ? { borderColor: "#2962ff55", color: "#2962ff77" } : {}}
-                    >
-                      Drop symbols here
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          ))
+                {sections.length > 1 && (
+                  <SectionHeader
+                    section={section}
+                    onToggleCollapse={() => toggleCollapse(section.id)}
+                    onRename={(name) => renameSection(section.id, name)}
+                    onDelete={() => deleteSection(section.id)}
+                    onAddSymbol={() => onSearchOpen()}
+                    onSectionDragStart={(e) => handleSectionDragStart(e, section.id)}
+                    onSectionDragEnd={handleSectionDragEnd}
+                  />
+                )}
+
+                {!section.collapsed && (
+                  <>
+                    {section.symbols.map((sym) => (
+                      <SymbolRow
+                        key={sym}
+                        symbol={sym}
+                        isActive={sym === activeSymbol}
+                        isFaded={sym === draggingSymbol}
+                        isDragOver={symbolDropTarget?.sectionId === section.id && symbolDropTarget?.insertBefore === sym}
+                        dragOverTop={true}
+                        onClick={() => onSelect(sym)}
+                        onRemove={() => onRemove(sym)}
+                        onDragStart={(e) => handleSymbolDragStart(e, sym, section.id)}
+                        onDragEnd={handleSymbolDragEnd}
+                        onDragOver={(e, s) => handleSymbolDragOver(e, section.id, s)}
+                        onDrop={(e) => handleSymbolDrop(e, section.id)}
+                      />
+                    ))}
+
+                    {section.symbols.length === 0 && (
+                      <div
+                        className="mx-2 my-1 px-3 py-2.5 border border-dashed border-[#2a2e39] rounded text-[10px] text-[#4c525e] text-center transition-colors"
+                        style={symbolDropTarget?.sectionId === section.id ? { borderColor: "#2962ff55", color: "#2962ff77" } : {}}
+                      >
+                        Drop symbols here
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            );
+          })
+        )}
+
+        {/* End drop zone for sections — renders a line at the very bottom when dragging */}
+        {draggingSection && sectionDropBefore === "__end__" && (
+          <div className="relative h-2 mx-2">
+            <div className="absolute left-0 right-0 top-1 h-0.5 bg-[#2962ff] rounded-full pointer-events-none" />
+          </div>
         )}
       </div>
 
