@@ -5,7 +5,13 @@ export interface WatchlistSection {
   collapsed: boolean;
 }
 
-const STORAGE_KEY = "tradingTerminalWatchlistSections_v1";
+const STORAGE_KEY_V1 = "tradingTerminalWatchlistSections_v1";
+const STORAGE_KEY    = "tradingTerminalWatchlistSections_v2";
+
+export const DEFAULT_STOCKS: string[] = [
+  "NVDA", "MU", "MSFT", "META", "SNDK", "AVGO", "PLTR", "TSM", "LITE", "INTC",
+  "DUO", "AI", "SE", "UPST", "TSLA", "NFLX", "UBER", "DASH", "ADBE", "SNOW",
+];
 
 export function makeId(): string {
   return Math.random().toString(36).slice(2, 10);
@@ -22,8 +28,29 @@ export function loadSections(fallbackSymbols: string[]): WatchlistSection[] {
       const parsed = JSON.parse(stored);
       if (Array.isArray(parsed) && parsed.length > 0) return parsed;
     }
+
+    const v1stored = localStorage.getItem(STORAGE_KEY_V1);
+    if (v1stored) {
+      const v1 = JSON.parse(v1stored);
+      if (Array.isArray(v1) && v1.length > 0) {
+        const stocksSet = new Set(DEFAULT_STOCKS);
+        const migratedSections: WatchlistSection[] = v1.map((s: WatchlistSection) => ({
+          ...s,
+          symbols: s.symbols.filter((sym) => !stocksSet.has(sym)),
+        }));
+        const sections = [...migratedSections, createSection("Stocks", DEFAULT_STOCKS)];
+        saveSections(sections);
+        return sections;
+      }
+    }
   } catch { /* ignore */ }
-  return [createSection("Watchlist", fallbackSymbols)];
+
+  const stocksSet = new Set(DEFAULT_STOCKS);
+  const watchlistSymbols = fallbackSymbols.filter((s) => !stocksSet.has(s));
+  const sections: WatchlistSection[] = [];
+  if (watchlistSymbols.length > 0) sections.push(createSection("Watchlist", watchlistSymbols));
+  sections.push(createSection("Stocks", DEFAULT_STOCKS));
+  return sections;
 }
 
 export function saveSections(sections: WatchlistSection[]): void {

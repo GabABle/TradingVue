@@ -14,7 +14,11 @@ import {
 } from "@/lib/ranges";
 import { Activity, AlertCircle, Star } from "lucide-react";
 
-const DEFAULT_WATCHLIST = ["AAPL", "MSFT", "TSLA", "GOOGL", "NVDA", "AMZN", "BTCUSD", "ETHUSD"];
+const DEFAULT_WATCHLIST = [
+  "AAPL", "MSFT", "TSLA", "GOOGL", "NVDA", "AMZN", "BTCUSD", "ETHUSD",
+  "MU", "META", "SNDK", "AVGO", "PLTR", "TSM", "LITE", "INTC",
+  "DUO", "AI", "SE", "UPST", "NFLX", "UBER", "DASH", "ADBE", "SNOW",
+];
 const STORAGE_KEY = "tradingTerminalState_v1";
 
 interface PersistedState {
@@ -49,7 +53,11 @@ function loadState(): PersistedState {
       showStoch:     typeof p.showStoch === "boolean"  ? p.showStoch : defaults.showStoch,
       smaPeriod:     typeof p.smaPeriod === "number"   || p.smaPeriod === null ? p.smaPeriod ?? null : defaults.smaPeriod,
       emaPeriod:     typeof p.emaPeriod === "number"   || p.emaPeriod === null ? p.emaPeriod ?? null : defaults.emaPeriod,
-      watchlist:     Array.isArray(p.watchlist) && p.watchlist.length > 0 ? p.watchlist : defaults.watchlist,
+      watchlist:     (() => {
+        const existing = Array.isArray(p.watchlist) && p.watchlist.length > 0 ? p.watchlist : defaults.watchlist;
+        const existingSet = new Set(existing);
+        return [...existing, ...DEFAULT_WATCHLIST.filter((s) => !existingSet.has(s))];
+      })(),
     };
   } catch { return defaults; }
 }
