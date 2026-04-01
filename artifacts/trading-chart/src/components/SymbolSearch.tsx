@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Search, X, TrendingUp, Bitcoin } from "lucide-react";
+import { Search, X, TrendingUp, Bitcoin, DollarSign } from "lucide-react";
 import { useDebounce } from "use-debounce";
 import { useSearchSymbols } from "@workspace/api-client-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -11,7 +11,9 @@ interface SymbolSearchProps {
   onSelect: (symbol: string) => void;
 }
 
-const POPULAR = ["AAPL", "MSFT", "TSLA", "GOOGL", "NVDA", "AMZN", "BTCUSD", "ETHUSD"];
+const POPULAR_STOCKS = ["AAPL", "MSFT", "TSLA", "NVDA", "AMZN", "GOOGL"];
+const POPULAR_CRYPTO_SYM = ["BTCUSD", "ETHUSD"];
+const POPULAR_FX = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD"];
 
 export function SymbolSearch({ open, initialQuery = "", onClose, onSelect }: SymbolSearchProps) {
   const [query, setQuery] = useState(initialQuery);
@@ -101,6 +103,9 @@ export function SymbolSearch({ open, initialQuery = "", onClose, onSelect }: Sym
             <ul>
               {items.map((res, i) => {
                 const isCrypto = res.type === "crypto";
+                const isForex  = res.type === "forex";
+                const iconBg   = isCrypto ? "bg-[#ff9800]/10" : isForex ? "bg-[#26a69a]/10" : "bg-[#2962ff]/10";
+                const badgeCls = isCrypto ? "bg-[#ff9800]/10 text-[#ff9800]" : isForex ? "bg-[#26a69a]/10 text-[#26a69a]" : "bg-[#2962ff]/10 text-[#2962ff]";
                 return (
                   <li key={res.symbol}>
                     <button
@@ -109,30 +114,20 @@ export function SymbolSearch({ open, initialQuery = "", onClose, onSelect }: Sym
                       }`}
                       onClick={() => handleSelect(res.symbol)}
                     >
-                      <div
-                        className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                          isCrypto ? "bg-[#ff9800]/10" : "bg-[#2962ff]/10"
-                        }`}
-                      >
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${iconBg}`}>
                         {isCrypto ? (
                           <Bitcoin className="w-4 h-4 text-[#ff9800]" />
+                        ) : isForex ? (
+                          <DollarSign className="w-4 h-4 text-[#26a69a]" />
                         ) : (
                           <TrendingUp className="w-4 h-4 text-[#2962ff]" />
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="font-bold font-mono text-[#d1d4dc] text-sm">
-                          {res.symbol}
-                        </div>
+                        <div className="font-bold font-mono text-[#d1d4dc] text-sm">{res.symbol}</div>
                         <div className="text-xs text-[#787b86] truncate">{res.name}</div>
                       </div>
-                      <span
-                        className={`text-[10px] uppercase px-2 py-0.5 rounded font-semibold ${
-                          isCrypto
-                            ? "bg-[#ff9800]/10 text-[#ff9800]"
-                            : "bg-[#2962ff]/10 text-[#2962ff]"
-                        }`}
-                      >
+                      <span className={`text-[10px] uppercase px-2 py-0.5 rounded font-semibold ${badgeCls}`}>
                         {res.type || "stock"}
                       </span>
                     </button>
@@ -143,20 +138,30 @@ export function SymbolSearch({ open, initialQuery = "", onClose, onSelect }: Sym
           )}
 
           {!query && (
-            <div className="px-4 py-4">
-              <p className="text-[10px] text-[#787b86] uppercase font-semibold mb-3 tracking-wider">
-                Popular
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {POPULAR.map((sym) => (
-                  <button
-                    key={sym}
-                    className="px-3 py-1.5 text-xs font-mono font-bold bg-[#2a2e39] hover:bg-[#363a45] text-[#d1d4dc] rounded-md transition-colors"
-                    onClick={() => handleSelect(sym)}
-                  >
-                    {sym}
-                  </button>
-                ))}
+            <div className="px-4 py-4 space-y-3">
+              <div>
+                <p className="text-[10px] text-[#4c525e] uppercase font-semibold mb-2 tracking-wider">Stocks</p>
+                <div className="flex flex-wrap gap-2">
+                  {POPULAR_STOCKS.map((sym) => (
+                    <button key={sym} className="px-3 py-1.5 text-xs font-mono font-bold bg-[#2a2e39] hover:bg-[#363a45] text-[#d1d4dc] rounded-md transition-colors" onClick={() => handleSelect(sym)}>{sym}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="text-[10px] text-[#4c525e] uppercase font-semibold mb-2 tracking-wider">Crypto</p>
+                <div className="flex flex-wrap gap-2">
+                  {POPULAR_CRYPTO_SYM.map((sym) => (
+                    <button key={sym} className="px-3 py-1.5 text-xs font-mono font-bold bg-[#ff9800]/10 hover:bg-[#ff9800]/20 text-[#ff9800] rounded-md transition-colors" onClick={() => handleSelect(sym)}>{sym}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="text-[10px] text-[#4c525e] uppercase font-semibold mb-2 tracking-wider">Forex</p>
+                <div className="flex flex-wrap gap-2">
+                  {POPULAR_FX.map((sym) => (
+                    <button key={sym} className="px-3 py-1.5 text-xs font-mono font-bold bg-[#26a69a]/10 hover:bg-[#26a69a]/20 text-[#26a69a] rounded-md transition-colors" onClick={() => handleSelect(sym)}>{sym}</button>
+                  ))}
+                </div>
               </div>
             </div>
           )}
