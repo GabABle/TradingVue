@@ -112,9 +112,11 @@ router.get("/market/bars", async (req, res) => {
     let barsKey: string | null = null;
 
     if (isForex) {
-      const fxSymbol = normalizeForexSymbol(upperSymbol);
-      barsKey = fxSymbol;
-      url = `${DATA_V1B3_URL}/forex/bars?symbols=${encodeURIComponent(fxSymbol)}&${params.toString()}`;
+      const startDate = start || getDefaultStart("1Day");
+      const bars = await fetchForexBars(upperSymbol, startDate, parseInt(limit ?? "500", 10));
+      res.set("Cache-Control", "no-cache");
+      res.json({ symbol: upperSymbol, bars, nextPageToken: null });
+      return;
     } else if (isCrypto) {
       const cryptoSymbol = normalizeCryptoSymbol(upperSymbol);
       barsKey = cryptoSymbol;
@@ -163,62 +165,34 @@ router.get("/market/quote", async (req, res) => {
     const isForex  = isForexSymbol(upperSymbol);
     const isCrypto = !isForex && isCryptoSymbol(upperSymbol);
 
-    // ── Forex ────────────────────────────────────────────────────────────────
+    // ── Forex (Frankfurter / ECB rates) ──────────────────────────────────────
     if (isForex) {
-      const fxSymbol = normalizeForexSymbol(upperSymbol);
-      const session  = getForexSession();
+      const session = getForexSession();
+      const fxQuote = await fetchForexQuote(upperSymbol);
 
-      const ratesUrl = `${DATA_V1B3_URL}/forex/latest/rates?currency_pairs=${encodeURIComponent(fxSymbol)}`;
-      const barsUrl  = `${DATA_V1B3_URL}/forex/bars?symbols=${encodeURIComponent(fxSymbol)}&timeframe=1Day&limit=2&sort=desc`;
-
-      const [ratesResp, barsResp] = await Promise.all([
-        fetch(ratesUrl, { headers: alpacaHeaders() }),
-        fetch(barsUrl,  { headers: alpacaHeaders() }),
-      ]);
-
-      if (!ratesResp.ok) {
-        res.status(ratesResp.status).json({ error: "Not Found", message: `No quote found for ${upperSymbol}` });
+      if (!fxQuote) {
+        res.status(404).json({ error: "Not Found", message: `No rate found for ${upperSymbol}` });
         return;
       }
 
-      const ratesData = await ratesResp.json() as any;
-      const rate      = ratesData.rates?.[fxSymbol];
-
-      if (!rate) {
-        res.status(404).json({ error: "Not Found", message: `No rate found for ${fxSymbol}` });
-        return;
-      }
-
-      // mid price is the primary displayed price
-      const price: number = rate.mp ?? rate.ap ?? rate.bp ?? 0;
-
-      // prev close from daily bars
-      let prevClose: number | null = null;
-      if (barsResp.ok) {
-        const barsData = await barsResp.json() as any;
-        const dailyBars: any[] = barsData.bars?.[fxSymbol] ?? [];
-        // bars come newest-first (sort=desc); index 0 = today's bar (open), index 1 = yesterday
-        if (dailyBars.length >= 2) prevClose = dailyBars[1].c;
-        else if (dailyBars.length === 1) prevClose = dailyBars[0].o;
-      }
-
+      const { price, prevClose, timestamp } = fxQuote;
       const change        = prevClose != null ? price - prevClose : 0;
       const changePercent = prevClose && prevClose !== 0 ? (change / prevClose) * 100 : 0;
 
       res.set("Cache-Control", "no-cache");
       res.json({
-        symbol:    upperSymbol,
+        symbol: upperSymbol,
         price,
         change,
         changePercent,
-        open:      0,
-        high:      0,
-        low:       0,
-        volume:    0,
+        open:   0,
+        high:   0,
+        low:    0,
+        volume: 0,
         session,
         prevClose,
         regularClose: prevClose,
-        timestamp: rate.t ?? new Date().toISOString(),
+        timestamp,
       });
       return;
     }
@@ -616,6 +590,76 @@ export const POPULAR_FOREX = [
   { symbol: "USDZAR", alpacaSymbol: "USD/ZAR", name: "US Dollar / South African Rand",    base: "USD", quote: "ZAR", type: "forex" },
   { symbol: "USDTRY", alpacaSymbol: "USD/TRY", name: "US Dollar / Turkish Lira",          base: "USD", quote: "TRY", type: "forex" },
 ];
+
+// ── Frankfurter (ECB) helpers for forex bars + quotes ────────────────────────
+function parseForexPair(symbol: string): { base: string; quote: string } | null {
+  const entry = POPULAR_FOREX.find(f => f.symbol === symbol || f.alpacaSymbol === symbol);
+  if (entry) return { base: entry.base, quote: entry.quote };
+  if (symbol.includes("/")) {
+    const [base, quote] = symbol.split("/");
+    if (base && quote) return { base, quote };
+  }
+  if (symbol.length === 6) return { base: symbol.slice(0, 3), quote: symbol.slice(3, 6) };
+  return null;
+}
+
+async function fetchForexBars(symbol: string, startDate: string, limit: number): Promise<any[]> {
+  const pair = parseForexPair(symbol);
+  if (!pair) return [];
+  const { base, quote } = pair;
+
+  // Frankfurter: GET /startDate..?base=EUR&symbols=USD  (no end = up to today)
+  const url = `https://api.frankfurter.app/${startDate}..?base=${base}&symbols=${quote}`;
+  try {
+    const response = await fetch(url);
+    if (!response.ok) return [];
+    const data = await response.json() as any;
+
+    const bars = Object.entries(data.rates ?? {})
+      .map(([date, rates]) => {
+        const c = (rates as Record<string, number>)[quote] ?? 0;
+        return { t: `${date}T00:00:00Z`, o: c, h: c, l: c, c, v: 0 };
+      })
+      .sort((a, b) => a.t.localeCompare(b.t));
+
+    return bars.slice(-limit);
+  } catch {
+    return [];
+  }
+}
+
+async function fetchForexQuote(symbol: string): Promise<{ price: number; prevClose: number | null; timestamp: string } | null> {
+  const pair = parseForexPair(symbol);
+  if (!pair) return null;
+  const { base, quote } = pair;
+
+  // Fetch last 5 trading days so we always have at least 2 data points across weekends
+  const since = new Date();
+  since.setDate(since.getDate() - 7);
+  const sinceStr = since.toISOString().split("T")[0];
+
+  try {
+    const response = await fetch(`https://api.frankfurter.app/${sinceStr}..?base=${base}&symbols=${quote}`);
+    if (!response.ok) return null;
+    const data = await response.json() as any;
+
+    const entries = Object.entries(data.rates ?? {}).sort(([a], [b]) => a.localeCompare(b));
+    if (entries.length === 0) return null;
+
+    const [lastDate, lastRates] = entries[entries.length - 1];
+    const price = (lastRates as Record<string, number>)[quote] ?? 0;
+
+    let prevClose: number | null = null;
+    if (entries.length >= 2) {
+      const [, prevRates] = entries[entries.length - 2];
+      prevClose = (prevRates as Record<string, number>)[quote] ?? null;
+    }
+
+    return { price, prevClose, timestamp: `${lastDate}T00:00:00Z` };
+  } catch {
+    return null;
+  }
+}
 
 function isForexSymbol(symbol: string): boolean {
   if (POPULAR_FOREX.some(f => f.symbol === symbol || f.alpacaSymbol === symbol)) return true;
