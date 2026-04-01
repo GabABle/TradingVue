@@ -608,19 +608,34 @@ async function fetchForexBars(symbol: string, startDate: string, limit: number):
   if (!pair) return [];
   const { base, quote } = pair;
 
+  // Ensure we always fetch at least 30 days so short ranges (1D/1W) have enough bars
+  const minStart = new Date();
+  minStart.setDate(minStart.getDate() - 30);
+  const effectiveStart = startDate < minStart.toISOString().split("T")[0]
+    ? startDate
+    : minStart.toISOString().split("T")[0];
+
   // Frankfurter: GET /startDate..?base=EUR&symbols=USD  (no end = up to today)
-  const url = `https://api.frankfurter.app/${startDate}..?base=${base}&symbols=${quote}`;
+  const url = `https://api.frankfurter.app/${effectiveStart}..?base=${base}&symbols=${quote}`;
   try {
     const response = await fetch(url);
     if (!response.ok) return [];
     const data = await response.json() as any;
 
-    const bars = Object.entries(data.rates ?? {})
-      .map(([date, rates]) => {
-        const c = (rates as Record<string, number>)[quote] ?? 0;
-        return { t: `${date}T00:00:00Z`, o: c, h: c, l: c, c, v: 0 };
-      })
-      .sort((a, b) => a.t.localeCompare(b.t));
+    const closes = Object.entries(data.rates ?? {})
+      .map(([date, rates]) => ({
+        date,
+        c: (rates as Record<string, number>)[quote] ?? 0,
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    // Synthesize OHLCV: open = previous day's close (standard forex bar construction)
+    const bars = closes.map((bar, i) => {
+      const o = i === 0 ? bar.c : closes[i - 1].c;
+      const h = Math.max(o, bar.c);
+      const l = Math.min(o, bar.c);
+      return { t: `${bar.date}T00:00:00Z`, o, h, l, c: bar.c, v: 0 };
+    });
 
     return bars.slice(-limit);
   } catch {
