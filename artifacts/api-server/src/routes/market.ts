@@ -90,8 +90,9 @@ router.get("/market/bars", async (req, res) => {
     }
 
     const upperSymbol = symbol.toUpperCase();
-    const isForex  = isForexSymbol(upperSymbol);
-    const isCrypto = !isForex && isCryptoSymbol(upperSymbol);
+    const isFutures = isFuturesSymbol(upperSymbol);
+    const isForex   = !isFutures && isForexSymbol(upperSymbol);
+    const isCrypto  = !isFutures && !isForex && isCryptoSymbol(upperSymbol);
 
     const params = new URLSearchParams({ timeframe, limit: limit ?? "200" });
 
@@ -111,7 +112,14 @@ router.get("/market/bars", async (req, res) => {
     let url: string;
     let barsKey: string | null = null;
 
-    if (isForex) {
+    if (isFutures) {
+      const yahooTicker = normalizeFuturesSymbol(upperSymbol);
+      const startDate   = start || getDefaultStart(timeframe);
+      const bars = await fetchYahooFuturesBars(yahooTicker, timeframe, startDate, parseInt(limit ?? "500", 10));
+      res.set("Cache-Control", "no-cache");
+      res.json({ symbol: upperSymbol, bars, nextPageToken: null });
+      return;
+    } else if (isForex) {
       const startDate = start || getDefaultStart("1Day");
       const bars = await fetchForexBars(upperSymbol, startDate, parseInt(limit ?? "500", 10));
       res.set("Cache-Control", "no-cache");
@@ -162,8 +170,35 @@ router.get("/market/quote", async (req, res) => {
     }
 
     const upperSymbol = symbol.toUpperCase();
-    const isForex  = isForexSymbol(upperSymbol);
-    const isCrypto = !isForex && isCryptoSymbol(upperSymbol);
+    const isFutures = isFuturesSymbol(upperSymbol);
+    const isForex   = !isFutures && isForexSymbol(upperSymbol);
+    const isCrypto  = !isFutures && !isForex && isCryptoSymbol(upperSymbol);
+
+    // ── Futures (Yahoo Finance) ───────────────────────────────────────────────
+    if (isFutures) {
+      const yahooTicker = normalizeFuturesSymbol(upperSymbol);
+      const quote = await fetchYahooFuturesQuote(yahooTicker);
+      if (!quote) {
+        res.status(404).json({ error: "Not Found", message: `No data found for ${upperSymbol}` });
+        return;
+      }
+      res.set("Cache-Control", "no-cache");
+      res.json({
+        symbol: upperSymbol,
+        price:          quote.price,
+        change:         quote.change,
+        changePercent:  quote.changePercent,
+        open:           quote.open,
+        high:           quote.high,
+        low:            quote.low,
+        volume:         quote.volume,
+        session:        "regular" as MarketSession,
+        prevClose:      quote.prevClose,
+        regularClose:   quote.prevClose,
+        timestamp:      quote.timestamp,
+      });
+      return;
+    }
 
     // ── Forex (Frankfurter / ECB rates) ──────────────────────────────────────
     if (isForex) {
@@ -340,6 +375,22 @@ router.get("/market/search", async (req, res) => {
 
     const upperQuery = query.toUpperCase();
 
+    // 0. Futures matches
+    const futuresMatches = POPULAR_FUTURES.filter(
+      (f) =>
+        f.symbol.startsWith(upperQuery) ||
+        f.symbol.includes(upperQuery) ||
+        f.yahooTicker.replace("=F", "").startsWith(upperQuery) ||
+        f.name.toUpperCase().includes(upperQuery)
+    )
+      .slice(0, 3)
+      .map((f) => ({
+        symbol:   f.symbol,
+        name:     f.name,
+        exchange: "CME",
+        type:     "futures" as const,
+      }));
+
     // 1. Forex matches
     const forexMatches = POPULAR_FOREX.filter(
       (f) =>
@@ -407,12 +458,14 @@ router.get("/market/search", async (req, res) => {
     }
 
     const results = [
+      ...futuresMatches,
       ...forexMatches,
       ...cryptoMatches.map((c) => ({ ...c, type: "crypto" as const })),
       ...stockResults.filter(
         (s) =>
           !cryptoMatches.some((c) => c.symbol === s.symbol) &&
-          !forexMatches.some((f) => f.symbol === s.symbol)
+          !forexMatches.some((f) => f.symbol === s.symbol) &&
+          !futuresMatches.some((f) => f.symbol === s.symbol)
       ),
     ].slice(0, 12);
 
@@ -465,13 +518,18 @@ router.get("/market/news", async (req, res) => {
     }
 
     const upperSymbol = symbol.toUpperCase();
-    const isForex  = isForexSymbol(upperSymbol);
-    const isCrypto = !isForex && isCryptoSymbol(upperSymbol);
+    const isFutures = isFuturesSymbol(upperSymbol);
+    const isForex   = !isFutures && isForexSymbol(upperSymbol);
+    const isCrypto  = !isFutures && !isForex && isCryptoSymbol(upperSymbol);
 
     let searchQuery: string;
     let yahooTicker: string;
 
-    if (isForex) {
+    if (isFutures) {
+      const ft = POPULAR_FUTURES.find(f => f.symbol === upperSymbol || f.yahooTicker === upperSymbol);
+      yahooTicker = ft?.yahooTicker ?? normalizeFuturesSymbol(upperSymbol);
+      searchQuery = ft?.name ?? upperSymbol;
+    } else if (isForex) {
       // Yahoo Finance uses e.g. "EURUSD=X" for forex
       const fxEntry = POPULAR_FOREX.find(f => f.symbol === upperSymbol || f.alpacaSymbol === upperSymbol);
       const clean = fxEntry?.symbol ?? upperSymbol.replace("/", "");
@@ -498,7 +556,7 @@ router.get("/market/news", async (req, res) => {
       .map((a: any) => {
         const tickers: string[] = a.relatedTickers ?? [];
         let tier = 3;
-        if (!isCrypto && !isForex) {
+        if (!isCrypto && !isForex && !isFutures) {
           const idx = tickers.indexOf(yahooTicker);
           if (idx === -1)                        tier = 3;
           else if (tickers.length === 1)         tier = 0;
@@ -507,7 +565,7 @@ router.get("/market/news", async (req, res) => {
         }
         return { ...a, _tier: tier };
       })
-      .filter((a: any) => isCrypto || isForex || a._tier < 3)
+      .filter((a: any) => isCrypto || isForex || isFutures || a._tier < 3)
       .sort((a, b) => {
         if (a._tier !== b._tier) return a._tier - b._tier;
         return (b.providerPublishTime ?? 0) - (a.providerPublishTime ?? 0);
@@ -734,6 +792,126 @@ function normalizeCryptoSymbol(symbol: string): string {
   }
 
   return symbol;
+}
+
+// ── Futures (commodities) ────────────────────────────────────────────────────
+export const POPULAR_FUTURES = [
+  { symbol: "GOLD",     yahooTicker: "GC=F",  name: "Gold Futures",             unit: "$/oz",    type: "futures" as const },
+  { symbol: "SILVER",   yahooTicker: "SI=F",  name: "Silver Futures",           unit: "$/oz",    type: "futures" as const },
+  { symbol: "OIL",      yahooTicker: "CL=F",  name: "Crude Oil WTI Futures",    unit: "$/bbl",   type: "futures" as const },
+  { symbol: "BRENT",    yahooTicker: "BZ=F",  name: "Brent Crude Oil Futures",  unit: "$/bbl",   type: "futures" as const },
+  { symbol: "NATGAS",   yahooTicker: "NG=F",  name: "Natural Gas Futures",      unit: "$/MMBtu", type: "futures" as const },
+  { symbol: "COPPER",   yahooTicker: "HG=F",  name: "Copper Futures",           unit: "$/lb",    type: "futures" as const },
+  { symbol: "PLATINUM", yahooTicker: "PL=F",  name: "Platinum Futures",         unit: "$/oz",    type: "futures" as const },
+  { symbol: "CORN",     yahooTicker: "ZC=F",  name: "Corn Futures",             unit: "¢/bu",    type: "futures" as const },
+  { symbol: "WHEAT",    yahooTicker: "ZW=F",  name: "Wheat Futures",            unit: "¢/bu",    type: "futures" as const },
+  { symbol: "SOYBEAN",  yahooTicker: "ZS=F",  name: "Soybean Futures",          unit: "¢/bu",    type: "futures" as const },
+];
+
+function isFuturesSymbol(symbol: string): boolean {
+  if (POPULAR_FUTURES.some(f => f.symbol === symbol || f.yahooTicker === symbol)) return true;
+  // Accept Yahoo Finance format directly: e.g. "GC=F"
+  if (/^[A-Z]{1,4}=F$/.test(symbol)) return true;
+  return false;
+}
+
+function normalizeFuturesSymbol(symbol: string): string {
+  const match = POPULAR_FUTURES.find(f => f.symbol === symbol || f.yahooTicker === symbol);
+  if (match) return match.yahooTicker;
+  // Already Yahoo format
+  if (/^[A-Z]{1,4}=F$/.test(symbol)) return symbol;
+  return `${symbol}=F`;
+}
+
+function mapTimeframeToYahoo(timeframe: string): string {
+  switch (timeframe) {
+    case "1Min":  return "1m";
+    case "5Min":  return "5m";
+    case "15Min": return "15m";
+    case "1Hour": return "1h";
+    case "4Hour": return "1h";
+    case "1Day":  return "1d";
+    case "1Week": return "1wk";
+    default:      return "1d";
+  }
+}
+
+const YAHOO_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "Accept": "application/json",
+  "Referer": "https://finance.yahoo.com/",
+};
+
+async function fetchYahooFuturesBars(yahooTicker: string, timeframe: string, startDate: string, limit: number): Promise<any[]> {
+  const interval = mapTimeframeToYahoo(timeframe);
+  const period1  = Math.floor(new Date(startDate).getTime() / 1000);
+  const period2  = Math.floor(Date.now() / 1000);
+
+  for (const host of ["query1", "query2"]) {
+    const url = `https://${host}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooTicker)}?interval=${interval}&period1=${period1}&period2=${period2}`;
+    try {
+      const response = await fetch(url, { headers: YAHOO_HEADERS });
+      if (!response.ok) continue;
+      const data   = await response.json() as any;
+      const result = data.chart?.result?.[0];
+      if (!result) continue;
+
+      const timestamps: number[] = result.timestamp ?? [];
+      const q = result.indicators?.quote?.[0] ?? {};
+      const bars = timestamps
+        .map((ts, i) => ({
+          t: new Date(ts * 1000).toISOString(),
+          o: q.open?.[i]   ?? null,
+          h: q.high?.[i]   ?? null,
+          l: q.low?.[i]    ?? null,
+          c: q.close?.[i]  ?? null,
+          v: q.volume?.[i] ?? 0,
+        }))
+        .filter((bar) => bar.o != null && bar.c != null);
+
+      return bars.slice(-limit);
+    } catch { /* try next host */ }
+  }
+  return [];
+}
+
+async function fetchYahooFuturesQuote(yahooTicker: string): Promise<{
+  price: number; change: number; changePercent: number;
+  open: number; high: number; low: number; volume: number;
+  prevClose: number; timestamp: string;
+} | null> {
+  for (const host of ["query1", "query2"]) {
+    const url = `https://${host}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooTicker)}?interval=1d&range=5d`;
+    try {
+      const response = await fetch(url, { headers: YAHOO_HEADERS });
+      if (!response.ok) continue;
+      const data   = await response.json() as any;
+      const result = data.chart?.result?.[0];
+      if (!result) continue;
+
+      const meta       = result.meta ?? {};
+      const price      = meta.regularMarketPrice ?? 0;
+      const prevClose  = meta.previousClose ?? meta.chartPreviousClose ?? meta.regularMarketPreviousClose ?? price;
+      const change     = price - prevClose;
+      const pct        = prevClose !== 0 ? (change / prevClose) * 100 : 0;
+      const ts         = meta.regularMarketTime
+        ? new Date(meta.regularMarketTime * 1000).toISOString()
+        : new Date().toISOString();
+
+      return {
+        price,
+        change,
+        changePercent: pct,
+        open:   meta.regularMarketOpen        ?? price,
+        high:   meta.regularMarketDayHigh     ?? price,
+        low:    meta.regularMarketDayLow      ?? price,
+        volume: meta.regularMarketVolume      ?? 0,
+        prevClose,
+        timestamp: ts,
+      };
+    } catch { /* try next host */ }
+  }
+  return null;
 }
 
 const POPULAR_CRYPTO = [
