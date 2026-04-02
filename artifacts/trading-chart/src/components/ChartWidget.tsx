@@ -98,39 +98,56 @@ export function ChartWidget({
     const el = chartContainerRef.current;
     if (!el) return;
 
-    const chart = createChart(el, {
-      ...BASE_CHART_OPTIONS,
-      width: el.clientWidth,
-      height: el.clientHeight,
-    });
+    let chart: IChartApi;
+    let candle: ISeriesApi<'Candlestick'>;
+    let volume: ISeriesApi<'Histogram'>;
 
-    const candle = chart.addSeries(CandlestickSeries, {
-      upColor: '#26a69a', downColor: '#ef5350',
-      borderUpColor: '#26a69a', borderDownColor: '#ef5350',
-      wickUpColor: '#26a69a', wickDownColor: '#ef5350',
-    });
+    try {
+      chart = createChart(el, {
+        ...BASE_CHART_OPTIONS,
+        width: el.clientWidth || 600,
+        height: el.clientHeight || 400,
+      });
 
-    const volume = chart.addSeries(HistogramSeries, {
-      color: '#26a69a',
-      priceFormat: { type: 'volume' },
-      priceScaleId: 'volume',
-    });
-    safe(() => chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } }), 'vol-scale');
+      candle = chart.addSeries(CandlestickSeries, {
+        upColor: '#26a69a', downColor: '#ef5350',
+        borderUpColor: '#26a69a', borderDownColor: '#ef5350',
+        wickUpColor: '#26a69a', wickDownColor: '#ef5350',
+      });
+
+      volume = chart.addSeries(HistogramSeries, {
+        color: '#26a69a',
+        priceFormat: { type: 'volume' },
+        priceScaleId: 'volume',
+      });
+      safe(() => chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } }), 'vol-scale');
+    } catch (err) {
+      console.warn('ChartWidget [init]:', err);
+      return;
+    }
 
     mainChartRef.current = chart;
-    candleRef.current    = candle;
-    volumeRef.current    = volume;
+    candleRef.current    = candle!;
+    volumeRef.current    = volume!;
 
+    // Use requestAnimationFrame to debounce resize updates — prevents the
+    // "ResizeObserver loop limit exceeded" error that fires when applyOptions
+    // itself causes a layout change, triggering another observer callback.
+    let rafId = 0;
     const ro = new ResizeObserver(() => {
-      if (!chartContainerRef.current) return;
-      safe(() => chart.applyOptions({
-        width: chartContainerRef.current!.clientWidth,
-        height: chartContainerRef.current!.clientHeight,
-      }), 'resize');
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        if (!chartContainerRef.current) return;
+        safe(() => chart.applyOptions({
+          width: chartContainerRef.current!.clientWidth,
+          height: chartContainerRef.current!.clientHeight,
+        }), 'resize');
+      });
     });
     ro.observe(el);
 
     return () => {
+      cancelAnimationFrame(rafId);
       ro.disconnect();
       safe(() => chart.remove(), 'chart-remove');
       mainChartRef.current = null;
@@ -210,12 +227,17 @@ export function ChartWidget({
       safe(() => mainChart.timeScale().subscribeVisibleLogicalRangeChange(syncMain!));
       safe(() => rsiChart.timeScale().subscribeVisibleLogicalRangeChange(syncRsi!));
     }
+    let rsiRafId = 0;
     const ro = new ResizeObserver(() => {
-      if (!rsiContainerRef.current) return;
-      safe(() => rsiChart.applyOptions({ width: rsiContainerRef.current!.clientWidth, height: rsiContainerRef.current!.clientHeight }));
+      cancelAnimationFrame(rsiRafId);
+      rsiRafId = requestAnimationFrame(() => {
+        if (!rsiContainerRef.current) return;
+        safe(() => rsiChart.applyOptions({ width: rsiContainerRef.current!.clientWidth, height: rsiContainerRef.current!.clientHeight }));
+      });
     });
     ro.observe(el);
     return () => {
+      cancelAnimationFrame(rsiRafId);
       ro.disconnect();
       if (mainChart && syncMain) safe(() => mainChart.timeScale().unsubscribeVisibleLogicalRangeChange(syncMain!));
       if (syncRsi) safe(() => rsiChart.timeScale().unsubscribeVisibleLogicalRangeChange(syncRsi!));
@@ -248,12 +270,17 @@ export function ChartWidget({
       safe(() => mainChart.timeScale().subscribeVisibleLogicalRangeChange(syncMain!));
       safe(() => stochChart.timeScale().subscribeVisibleLogicalRangeChange(syncStoch!));
     }
+    let stochRafId = 0;
     const ro = new ResizeObserver(() => {
-      if (!stochContainerRef.current) return;
-      safe(() => stochChart.applyOptions({ width: stochContainerRef.current!.clientWidth, height: stochContainerRef.current!.clientHeight }));
+      cancelAnimationFrame(stochRafId);
+      stochRafId = requestAnimationFrame(() => {
+        if (!stochContainerRef.current) return;
+        safe(() => stochChart.applyOptions({ width: stochContainerRef.current!.clientWidth, height: stochContainerRef.current!.clientHeight }));
+      });
     });
     ro.observe(el);
     return () => {
+      cancelAnimationFrame(stochRafId);
       ro.disconnect();
       if (mainChart && syncMain)  safe(() => mainChart.timeScale().unsubscribeVisibleLogicalRangeChange(syncMain!));
       if (syncStoch)              safe(() => stochChart.timeScale().unsubscribeVisibleLogicalRangeChange(syncStoch!));
