@@ -9,25 +9,27 @@ export interface AlertTriggeredPayload {
     symbol: string;
     targetPrice: number;
     condition: "above" | "below";
-    email: string;
-    triggeredPrice: number;
-    triggeredAt: string;
+    triggeredPrice?: number;
+    triggeredAt?: string;
   };
   currentPrice: number;
 }
 
-export function useAlertEvents(onTriggered: (payload: AlertTriggeredPayload) => void) {
+export function useAlertEvents(token: string | null, onTriggered: (payload: AlertTriggeredPayload) => void) {
   const cbRef = useRef(onTriggered);
   cbRef.current = onTriggered;
 
   useEffect(() => {
+    if (!token) return;
+
     let es: EventSource | null = null;
     let retryTimeout: ReturnType<typeof setTimeout> | null = null;
     let alive = true;
 
     function connect() {
       if (!alive) return;
-      es = new EventSource(`${BASE}/api/alerts/events`);
+      // EventSource doesn't support custom headers — pass token as query param
+      es = new EventSource(`${BASE}/api/alerts/events?token=${encodeURIComponent(token!)}`);
 
       es.onmessage = (evt) => {
         try {
@@ -53,5 +55,5 @@ export function useAlertEvents(onTriggered: (payload: AlertTriggeredPayload) => 
       if (retryTimeout) clearTimeout(retryTimeout);
       es?.close();
     };
-  }, []);
+  }, [token]);
 }

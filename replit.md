@@ -13,8 +13,19 @@ A TradingView-style trading terminal at `artifacts/trading-chart/` with:
 - AI chat panel (SSE streaming, GPT-5.2 via Replit AI Integrations)
 - Resizable right panel (width + section heights via drag handles)
 - Keyboard shortcuts: V=cursor, T=trend, H=hline, R=rect, F=fib, A=text, E=eraser, Esc=exit tool
+- **Full auth system**: register/login with JWT, AuthGate wraps the terminal, UserMenu in toolbar
+- **Per-user watchlist**: stored in PostgreSQL, loaded from API on mount, debounced saves
+- **Price alerts**: DB-backed, per-user (requireAuth), SSE events via `?token=JWT`, Resend email + browser Notification API
 
-API server at `artifacts/api-server/` serves market data, news, and chat routes.
+API server at `artifacts/api-server/` serves market data, news, chat, auth, and user data routes.
+
+### Auth system
+- `routes/auth.ts`: POST /api/auth/register, /login, GET /me
+- `routes/user.ts`: GET/PUT /api/user/watchlist, GET/PUT /api/user/preferences
+- `routes/alerts.ts`: CRUD /api/alerts, SSE /api/alerts/events (requireAuth or ?token= for EventSource)
+- `lib/db.ts`: pg Pool; `lib/jwt.ts`: sign/verify; `lib/auth-middleware.ts`: requireAuth/optionalAuth
+- Frontend: `AuthContext.tsx` (token in localStorage `tradingvue_token`, `authFetch` wrapper), `LoginPage.tsx`, `UserMenu.tsx`
+- DB tables: `users`, `user_watchlists`, `user_alerts`, `user_preferences`
 
 ## Overview
 

@@ -4,7 +4,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import TradingTerminal from "@/pages/TradingTerminal";
+import LoginPage from "@/pages/LoginPage";
 import NotFound from "@/pages/not-found";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -57,7 +59,22 @@ class ErrorBoundary extends Component<
   }
 }
 
-function Router() {
+function AuthGate() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="h-screen w-screen bg-[#0a0e17] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-3 border-[#2962ff]/30 border-t-[#2962ff] rounded-full animate-spin" />
+          <p className="text-[#4c525e] text-sm">Loading…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) return <LoginPage />;
+
   return (
     <Switch>
       <Route path="/" component={TradingTerminal} />
@@ -71,9 +88,11 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <ErrorBoundary>
-            <Router />
-          </ErrorBoundary>
+          <AuthProvider>
+            <ErrorBoundary>
+              <AuthGate />
+            </ErrorBoundary>
+          </AuthProvider>
         </WouterRouter>
         <Toaster />
       </TooltipProvider>

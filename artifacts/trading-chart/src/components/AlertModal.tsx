@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Bell, Plus, Trash2, X, CheckCircle, AlertCircle } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
@@ -20,6 +21,7 @@ interface Props {
 }
 
 export function AlertModal({ open, symbol, currentPrice, onClose }: Props) {
+  const { authFetch } = useAuth();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [targetPrice, setTargetPrice] = useState("");
   const [condition, setCondition] = useState<"above" | "below">("above");
@@ -30,22 +32,20 @@ export function AlertModal({ open, symbol, currentPrice, onClose }: Props) {
 
   const fetchAlerts = useCallback(async () => {
     try {
-      const r = await fetch(`${BASE}/api/alerts?symbol=${encodeURIComponent(symbol)}`);
+      const r = await authFetch(`${BASE}/api/alerts?symbol=${encodeURIComponent(symbol)}`);
       if (r.ok) {
         const data = await r.json() as { alerts: Alert[] };
         setAlerts(data.alerts);
       }
     } catch { /* ignore */ }
-  }, [symbol]);
+  }, [symbol, authFetch]);
 
   useEffect(() => {
     if (open) {
       fetchAlerts();
       setError("");
       setSuccess("");
-      if (currentPrice != null) {
-        setTargetPrice(currentPrice.toFixed(2));
-      }
+      if (currentPrice != null) setTargetPrice(currentPrice.toFixed(2));
     }
   }, [open, fetchAlerts, currentPrice]);
 
@@ -55,18 +55,12 @@ export function AlertModal({ open, symbol, currentPrice, onClose }: Props) {
     setSuccess("");
 
     const price = parseFloat(targetPrice);
-    if (isNaN(price) || price <= 0) {
-      setError("Please enter a valid price.");
-      return;
-    }
-    if (!email.trim() || !email.includes("@")) {
-      setError("Please enter a valid email address.");
-      return;
-    }
+    if (isNaN(price) || price <= 0) { setError("Please enter a valid price."); return; }
+    if (!email.trim() || !email.includes("@")) { setError("Please enter a valid email address."); return; }
 
     setSaving(true);
     try {
-      const r = await fetch(`${BASE}/api/alerts`, {
+      const r = await authFetch(`${BASE}/api/alerts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ symbol, targetPrice: price, condition, email: email.trim() }),
@@ -88,7 +82,7 @@ export function AlertModal({ open, symbol, currentPrice, onClose }: Props) {
 
   const handleDelete = async (id: string) => {
     try {
-      await fetch(`${BASE}/api/alerts/${id}`, { method: "DELETE" });
+      await authFetch(`${BASE}/api/alerts/${id}`, { method: "DELETE" });
       setAlerts(prev => prev.filter(a => a.id !== id));
     } catch { /* ignore */ }
   };
@@ -120,7 +114,6 @@ export function AlertModal({ open, symbol, currentPrice, onClose }: Props) {
           {/* Create form */}
           <form onSubmit={handleCreate} className="space-y-3">
             <div className="flex gap-2">
-              {/* Condition */}
               <div className="flex bg-[#131722] border border-[#2a2e39] rounded-md p-0.5 shrink-0">
                 {(["above", "below"] as const).map(c => (
                   <button
@@ -139,8 +132,6 @@ export function AlertModal({ open, symbol, currentPrice, onClose }: Props) {
                   </button>
                 ))}
               </div>
-
-              {/* Price input */}
               <input
                 type="number"
                 step="any"
@@ -152,7 +143,6 @@ export function AlertModal({ open, symbol, currentPrice, onClose }: Props) {
               />
             </div>
 
-            {/* Email */}
             <input
               type="email"
               placeholder="Email for notification"
@@ -169,14 +159,12 @@ export function AlertModal({ open, symbol, currentPrice, onClose }: Props) {
 
             {error && (
               <div className="flex items-center gap-1.5 text-xs text-[#ef5350]">
-                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                {error}
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />{error}
               </div>
             )}
             {success && (
               <div className="flex items-center gap-1.5 text-xs text-[#26a69a]">
-                <CheckCircle className="w-3.5 h-3.5 shrink-0" />
-                {success}
+                <CheckCircle className="w-3.5 h-3.5 shrink-0" />{success}
               </div>
             )}
 
@@ -201,16 +189,10 @@ export function AlertModal({ open, symbol, currentPrice, onClose }: Props) {
                     className="flex items-center justify-between px-3 py-2 bg-[#131722] border border-[#2a2e39] rounded-lg group"
                   >
                     <div className="flex items-center gap-2 min-w-0">
-                      <span
-                        className={`text-xs font-bold shrink-0 ${
-                          alert.condition === "above" ? "text-[#26a69a]" : "text-[#ef5350]"
-                        }`}
-                      >
+                      <span className={`text-xs font-bold shrink-0 ${alert.condition === "above" ? "text-[#26a69a]" : "text-[#ef5350]"}`}>
                         {alert.condition === "above" ? "▲" : "▼"}
                       </span>
-                      <span className="font-mono text-sm text-[#d1d4dc] font-semibold">
-                        {formatPrice(alert.targetPrice)}
-                      </span>
+                      <span className="font-mono text-sm text-[#d1d4dc] font-semibold">{formatPrice(alert.targetPrice)}</span>
                       <span className="text-xs text-[#4c525e] truncate">{alert.email}</span>
                     </div>
                     <button
@@ -226,7 +208,7 @@ export function AlertModal({ open, symbol, currentPrice, onClose }: Props) {
           )}
 
           <p className="text-[10px] text-[#4c525e] leading-relaxed">
-            Alerts trigger in-browser notifications instantly, plus an email when the price is reached. Alerts check every 30 seconds.
+            Alerts trigger in-browser notifications instantly, plus an email when the price is reached. Checks every 30 seconds.
           </p>
         </div>
       </div>

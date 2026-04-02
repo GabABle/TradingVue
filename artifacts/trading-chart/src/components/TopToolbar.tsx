@@ -1,5 +1,6 @@
 import { Activity, TrendingUp, Settings2, Search, BarChart2, Bell } from "lucide-react";
 import { useState, useEffect } from "react";
+import { UserMenu } from "@/components/UserMenu";
 import { useGetQuote } from "@workspace/api-client-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -272,6 +273,10 @@ export function TopToolbar({
             </div>
           </PopoverContent>
         </Popover>
+
+        <div className="w-px h-5 bg-[#2a2e39]" />
+
+        <UserMenu />
       </div>
     </div>
   );
