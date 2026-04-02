@@ -4,6 +4,8 @@ import { ChartWidget } from "@/components/ChartWidget";
 import { TopToolbar } from "@/components/TopToolbar";
 import { RightPanel } from "@/components/RightPanel";
 import { SymbolSearch } from "@/components/SymbolSearch";
+import { AlertModal } from "@/components/AlertModal";
+import { useAlertEvents } from "@/hooks/useAlertEvents";
 import {
   type RangeKey,
   type IntervalKey,
@@ -75,6 +77,7 @@ export default function TradingTerminal() {
   const [watchlist, setWatchlist]         = useState<string[]>(saved.watchlist);
   const [searchOpen, setSearchOpen]       = useState(false);
   const [searchInitial, setSearchInitial] = useState("");
+  const [alertOpen, setAlertOpen]         = useState(false);
 
   // Persist app state
   useEffect(() => {
@@ -131,6 +134,29 @@ export default function TradingTerminal() {
         ? ((quoteData as any)?.price ?? null)     // after-hours: latestTrade is a post-market trade
         : null;
 
+  // Request notification permission on first alert open
+  const openAlerts = useCallback(() => {
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
+    }
+    setAlertOpen(true);
+  }, []);
+
+  // SSE — show browser notification when an alert triggers
+  useAlertEvents(useCallback((payload) => {
+    const { alert, currentPrice } = payload;
+    const dir = alert.condition === "above" ? "▲" : "▼";
+    const title = `🔔 ${alert.symbol} Alert Triggered`;
+    const body = `${dir} ${alert.symbol} reached $${currentPrice.toFixed(2)} (target: $${alert.targetPrice})`;
+
+    if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+      new Notification(title, { body, icon: "/favicon.ico" });
+    } else {
+      // Fallback: simple alert
+      console.warn("[TradingVue Alert]", title, body);
+    }
+  }, []));
+
   // Keyboard shortcuts: any letter key opens symbol search
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -174,6 +200,7 @@ export default function TradingTerminal() {
         smaPeriod={smaPeriod} setSmaPeriod={setSmaPeriod}
         emaPeriod={emaPeriod} setEmaPeriod={setEmaPeriod}
         onSearchOpen={openSearch}
+        onAlertOpen={openAlerts}
       />
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -259,6 +286,13 @@ export default function TradingTerminal() {
         initialQuery={searchInitial}
         onClose={() => { setSearchOpen(false); setSearchInitial(""); }}
         onSelect={handleSymbolSelect}
+      />
+
+      <AlertModal
+        open={alertOpen}
+        symbol={symbol}
+        currentPrice={(quoteData as any)?.price ?? null}
+        onClose={() => setAlertOpen(false)}
       />
     </div>
   );
