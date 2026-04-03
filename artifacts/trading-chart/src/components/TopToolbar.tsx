@@ -1,4 +1,4 @@
-import { Activity, TrendingUp, Settings2, Search, BarChart2, Bell } from "lucide-react";
+import { Activity, TrendingUp, Settings2, Search, BarChart2, Bell, ArrowLeftRight } from "lucide-react";
 import { useState, useEffect } from "react";
 import { UserMenu } from "@/components/UserMenu";
 import { useGetQuote } from "@workspace/api-client-react";
@@ -45,6 +45,7 @@ interface TopToolbarProps {
   setEmaPeriod: (p: number | null) => void;
   onSearchOpen: (initial?: string) => void;
   onAlertOpen: () => void;
+  onTradeOpen: () => void;
 }
 
 export function TopToolbar({
@@ -63,6 +64,7 @@ export function TopToolbar({
   setEmaPeriod,
   onSearchOpen,
   onAlertOpen,
+  onTradeOpen,
 }: TopToolbarProps) {
   const { data: quote } = useGetQuote(
     { symbol },
@@ -200,6 +202,16 @@ export function TopToolbar({
         >
           <BarChart2 className="w-3.5 h-3.5" />
           Stoch
+        </button>
+
+        {/* Trade button */}
+        <button
+          onClick={onTradeOpen}
+          title="Paper trade this symbol"
+          className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-md border border-[#2962ff]/60 bg-[#2962ff]/10 text-[#2962ff] hover:bg-[#2962ff]/20 hover:border-[#2962ff] transition-all duration-150"
+        >
+          <ArrowLeftRight className="w-3.5 h-3.5" />
+          Trade
         </button>
 
         {/* Alert bell */}

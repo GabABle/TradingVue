@@ -5,6 +5,7 @@ import { TopToolbar } from "@/components/TopToolbar";
 import { RightPanel } from "@/components/RightPanel";
 import { SymbolSearch } from "@/components/SymbolSearch";
 import { AlertModal } from "@/components/AlertModal";
+import { TradingModal } from "@/components/TradingModal";
 import { useAlertEvents } from "@/hooks/useAlertEvents";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -76,6 +77,7 @@ export default function TradingTerminal() {
   const [searchOpen, setSearchOpen]       = useState(false);
   const [searchInitial, setSearchInitial] = useState("");
   const [alertOpen, setAlertOpen]         = useState(false);
+  const [tradeOpen, setTradeOpen]         = useState(false);
 
   // ── Persist chart prefs to localStorage ───────────────────────────────────
   useEffect(() => {
@@ -216,6 +218,7 @@ export default function TradingTerminal() {
         emaPeriod={emaPeriod} setEmaPeriod={setEmaPeriod}
         onSearchOpen={openSearch}
         onAlertOpen={openAlerts}
+        onTradeOpen={() => setTradeOpen(true)}
       />
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -307,6 +310,13 @@ export default function TradingTerminal() {
         symbol={symbol}
         currentPrice={(quoteData as any)?.price ?? null}
         onClose={() => setAlertOpen(false)}
+      />
+
+      <TradingModal
+        open={tradeOpen}
+        symbol={symbol}
+        currentPrice={(quoteData as any)?.price ?? null}
+        onClose={() => setTradeOpen(false)}
       />
     </div>
   );
