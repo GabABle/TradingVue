@@ -112,21 +112,31 @@ export function TopToolbar({
         </button>
 
         {quote ? (
-          <div className="hidden sm:flex items-baseline gap-2">
-            <span className="text-lg font-bold font-mono text-[#d1d4dc] tracking-tight">
-              {formatPrice(quote.price)}
-            </span>
-            <span
-              className={`text-xs font-semibold ${
-                quote.change >= 0 ? "text-[#26a69a]" : "text-[#ef5350]"
-              }`}
+          <div className="hidden sm:flex items-center gap-2">
+            <div className="flex items-baseline gap-2">
+              <span className="text-lg font-bold font-mono text-[#d1d4dc] tracking-tight">
+                {formatPrice(quote.price)}
+              </span>
+              <span
+                className={`text-xs font-semibold ${
+                  quote.change >= 0 ? "text-[#26a69a]" : "text-[#ef5350]"
+                }`}
+              >
+                {quote.change >= 0 ? "+" : ""}
+                {quote.change.toFixed(2)}&nbsp;(
+                {quote.change >= 0 ? "+" : ""}
+                {quote.changePercent.toFixed(2)}%)
+              </span>
+              <SessionBadge session={(quote as any).session} />
+            </div>
+            <button
+              onClick={onTradeOpen}
+              title="Paper trade this symbol"
+              className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md border border-[#2962ff]/60 bg-[#2962ff]/10 text-[#2962ff] hover:bg-[#2962ff]/20 hover:border-[#2962ff] transition-all duration-150"
             >
-              {quote.change >= 0 ? "+" : ""}
-              {quote.change.toFixed(2)}&nbsp;(
-              {quote.change >= 0 ? "+" : ""}
-              {quote.changePercent.toFixed(2)}%)
-            </span>
-            <SessionBadge session={(quote as any).session} />
+              <ArrowLeftRight className="w-3 h-3" />
+              Trade
+            </button>
           </div>
         ) : (
           <div className="hidden sm:flex items-center gap-2">
@@ -202,16 +212,6 @@ export function TopToolbar({
         >
           <BarChart2 className="w-3.5 h-3.5" />
           Stoch
-        </button>
-
-        {/* Trade button */}
-        <button
-          onClick={onTradeOpen}
-          title="Paper trade this symbol"
-          className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-md border border-[#2962ff]/60 bg-[#2962ff]/10 text-[#2962ff] hover:bg-[#2962ff]/20 hover:border-[#2962ff] transition-all duration-150"
-        >
-          <ArrowLeftRight className="w-3.5 h-3.5" />
-          Trade
         </button>
 
         {/* Alert bell */}

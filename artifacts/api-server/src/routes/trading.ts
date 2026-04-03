@@ -72,12 +72,17 @@ router.post("/trading/orders", requireAuth, async (req: Request, res: Response) 
       limit_price?: number | string;
     };
 
+    // Alpaca crypto symbols (e.g. BTCUSD, ETHUSD) require "gtc" — "day" is invalid for crypto
+    const sym = symbol.toUpperCase();
+    const isCrypto = /^[A-Z]{2,10}USD$/.test(sym) && sym.length >= 5;
+    const resolvedTif = isCrypto ? "gtc" : (time_in_force ?? "day");
+
     const body: Record<string, string> = {
-      symbol: symbol.toUpperCase(),
+      symbol: sym,
       qty: String(qty),
       side,
       type,
-      time_in_force: time_in_force ?? "day",
+      time_in_force: resolvedTif,
     };
     if (type === "limit" && limit_price) {
       body["limit_price"] = String(limit_price);
