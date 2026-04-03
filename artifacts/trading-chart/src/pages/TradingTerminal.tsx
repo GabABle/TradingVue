@@ -223,6 +223,13 @@ export default function TradingTerminal() {
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
 
+        <TradingModal
+          open={tradeOpen}
+          symbol={symbol}
+          currentPrice={(quoteData as any)?.price ?? null}
+          onClose={() => setTradeOpen(false)}
+        />
+
         <main className="flex-1 relative p-3 flex flex-col min-w-0">
 
           {isLoading && (
@@ -312,12 +319,6 @@ export default function TradingTerminal() {
         onClose={() => setAlertOpen(false)}
       />
 
-      <TradingModal
-        open={tradeOpen}
-        symbol={symbol}
-        currentPrice={(quoteData as any)?.price ?? null}
-        onClose={() => setTradeOpen(false)}
-      />
     </div>
   );
 }
