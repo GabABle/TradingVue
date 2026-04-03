@@ -230,7 +230,6 @@ export default function TradingTerminal() {
         smaPeriod={smaPeriod} setSmaPeriod={setSmaPeriod}
         emaPeriod={emaPeriod} setEmaPeriod={setEmaPeriod}
         onSearchOpen={openSearch}
-        onAlertOpen={openAlerts}
         onTradeOpen={() => setTradeOpen(true)}
       />
 

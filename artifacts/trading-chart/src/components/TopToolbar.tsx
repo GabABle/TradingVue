@@ -1,5 +1,4 @@
-import { Activity, TrendingUp, Settings2, Search, BarChart2, Bell, ArrowLeftRight } from "lucide-react";
-import { useState, useEffect } from "react";
+import { Activity, TrendingUp, Settings2, Search, BarChart2, ArrowLeftRight } from "lucide-react";
 import { UserMenu } from "@/components/UserMenu";
 import { useGetQuote } from "@workspace/api-client-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -27,8 +26,6 @@ function SessionBadge({ session }: { session?: MarketSession }) {
   );
 }
 
-const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
-
 interface TopToolbarProps {
   symbol: string;
   selectedRange: RangeKey;
@@ -44,7 +41,6 @@ interface TopToolbarProps {
   emaPeriod: number | null;
   setEmaPeriod: (p: number | null) => void;
   onSearchOpen: (initial?: string) => void;
-  onAlertOpen: () => void;
   onTradeOpen: () => void;
 }
 
@@ -63,31 +59,12 @@ export function TopToolbar({
   emaPeriod,
   setEmaPeriod,
   onSearchOpen,
-  onAlertOpen,
   onTradeOpen,
 }: TopToolbarProps) {
   const { data: quote } = useGetQuote(
     { symbol },
     { query: { refetchInterval: 10_000 } }
   );
-
-  const [alertCount, setAlertCount] = useState(0);
-
-  useEffect(() => {
-    let mounted = true;
-    const fetchCount = async () => {
-      try {
-        const r = await fetch(`${BASE}/api/alerts?symbol=${encodeURIComponent(symbol)}`);
-        if (r.ok && mounted) {
-          const d = await r.json() as { alerts: unknown[] };
-          setAlertCount(d.alerts.length);
-        }
-      } catch { /* ignore */ }
-    };
-    fetchCount();
-    const iv = setInterval(fetchCount, 15_000);
-    return () => { mounted = false; clearInterval(iv); };
-  }, [symbol]);
 
   const validIntervals = RANGE_CONFIG[selectedRange].intervals;
 
@@ -101,7 +78,6 @@ export function TopToolbar({
 
       {/* ── Left: symbol + live price ── */}
       <div className="flex items-center gap-3 shrink-0">
-        {/* Symbol search trigger — clicking opens search, but typing anywhere also works */}
         <button
           className="group flex items-center gap-2 px-3 py-1.5 bg-[#131722] hover:bg-[#2a2e39] border border-[#2a2e39] hover:border-[#363a45] rounded-md transition-all duration-150 shadow-sm"
           onClick={() => onSearchOpen()}
@@ -212,25 +188,6 @@ export function TopToolbar({
         >
           <BarChart2 className="w-3.5 h-3.5" />
           Stoch
-        </button>
-
-        {/* Alert bell */}
-        <button
-          onClick={() => onAlertOpen()}
-          title="Set price alert"
-          className={`relative flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-md border transition-all duration-150 ${
-            alertCount > 0
-              ? "bg-[#f59e0b]/10 border-[#f59e0b]/50 text-[#f59e0b]"
-              : "bg-transparent border-[#2a2e39] text-[#787b86] hover:text-[#d1d4dc] hover:border-[#787b86]"
-          }`}
-        >
-          <Bell className="w-3.5 h-3.5" />
-          Alerts
-          {alertCount > 0 && (
-            <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#f59e0b] text-[9px] font-bold text-black">
-              {alertCount > 9 ? "9+" : alertCount}
-            </span>
-          )}
         </button>
 
         {/* Moving Averages */}
