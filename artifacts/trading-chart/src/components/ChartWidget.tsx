@@ -228,14 +228,27 @@ export function ChartWidget({
 
     const mainChart = mainChartRef.current;
 
-    // ── Time-scale sync (zoom/pan) ───────────────────────────────────────
+    // ── Time-scale sync (zoom/pan) — sync by TIME RANGE not logical range ──
+    // Using logical range causes systematic misalignment because RSI data
+    // starts 14 bars later, so logical index N corresponds to different times.
+    let isSyncingRange = false;
     let syncMain: ((r: any) => void) | null = null;
     let syncRsi:  ((r: any) => void) | null = null;
     if (mainChart) {
-      syncMain = (r: any) => safe(() => { if (r) rsiChart.timeScale().setVisibleLogicalRange(r); });
-      syncRsi  = (r: any) => safe(() => { if (r) mainChart.timeScale().setVisibleLogicalRange(r); });
-      safe(() => mainChart.timeScale().subscribeVisibleLogicalRangeChange(syncMain!));
-      safe(() => rsiChart.timeScale().subscribeVisibleLogicalRangeChange(syncRsi!));
+      syncMain = (r: any) => {
+        if (isSyncingRange || !r) return;
+        isSyncingRange = true;
+        safe(() => rsiChart.timeScale().setVisibleRange(r));
+        isSyncingRange = false;
+      };
+      syncRsi = (r: any) => {
+        if (isSyncingRange || !r) return;
+        isSyncingRange = true;
+        safe(() => mainChart.timeScale().setVisibleRange(r));
+        isSyncingRange = false;
+      };
+      safe(() => mainChart.timeScale().subscribeVisibleTimeRangeChange(syncMain!));
+      safe(() => rsiChart.timeScale().subscribeVisibleTimeRangeChange(syncRsi!));
     }
 
     // ── Crosshair sync ───────────────────────────────────────────────────
@@ -300,8 +313,8 @@ export function ChartWidget({
       ro.disconnect();
       unsubMainCursor?.();
       unsubRsiCursor?.();
-      if (mainChart && syncMain) safe(() => mainChart.timeScale().unsubscribeVisibleLogicalRangeChange(syncMain!));
-      if (syncRsi) safe(() => rsiChart.timeScale().unsubscribeVisibleLogicalRangeChange(syncRsi!));
+      if (mainChart && syncMain) safe(() => mainChart.timeScale().unsubscribeVisibleTimeRangeChange(syncMain!));
+      if (syncRsi) safe(() => rsiChart.timeScale().unsubscribeVisibleTimeRangeChange(syncRsi!));
       safe(() => rsiChart.remove());
       rsiChartRef.current = null;
       rsiRef.current      = null;
@@ -330,14 +343,25 @@ export function ChartWidget({
 
     const mainChart = mainChartRef.current;
 
-    // ── Time-scale sync ──────────────────────────────────────────────────
+    // ── Time-scale sync — sync by TIME RANGE not logical range ──────────
+    let isSyncingRange = false;
     let syncMain:  ((r: any) => void) | null = null;
     let syncStoch: ((r: any) => void) | null = null;
     if (mainChart) {
-      syncMain  = (r: any) => safe(() => { if (r) stochChart.timeScale().setVisibleLogicalRange(r); });
-      syncStoch = (r: any) => safe(() => { if (r) mainChart.timeScale().setVisibleLogicalRange(r); });
-      safe(() => mainChart.timeScale().subscribeVisibleLogicalRangeChange(syncMain!));
-      safe(() => stochChart.timeScale().subscribeVisibleLogicalRangeChange(syncStoch!));
+      syncMain = (r: any) => {
+        if (isSyncingRange || !r) return;
+        isSyncingRange = true;
+        safe(() => stochChart.timeScale().setVisibleRange(r));
+        isSyncingRange = false;
+      };
+      syncStoch = (r: any) => {
+        if (isSyncingRange || !r) return;
+        isSyncingRange = true;
+        safe(() => mainChart.timeScale().setVisibleRange(r));
+        isSyncingRange = false;
+      };
+      safe(() => mainChart.timeScale().subscribeVisibleTimeRangeChange(syncMain!));
+      safe(() => stochChart.timeScale().subscribeVisibleTimeRangeChange(syncStoch!));
     }
 
     // ── Crosshair sync ───────────────────────────────────────────────────
@@ -402,8 +426,8 @@ export function ChartWidget({
       ro.disconnect();
       unsubMainCursor?.();
       unsubStochCursor?.();
-      if (mainChart && syncMain)  safe(() => mainChart.timeScale().unsubscribeVisibleLogicalRangeChange(syncMain!));
-      if (syncStoch)              safe(() => stochChart.timeScale().unsubscribeVisibleLogicalRangeChange(syncStoch!));
+      if (mainChart && syncMain)  safe(() => mainChart.timeScale().unsubscribeVisibleTimeRangeChange(syncMain!));
+      if (syncStoch)              safe(() => stochChart.timeScale().unsubscribeVisibleTimeRangeChange(syncStoch!));
       safe(() => stochChart.remove());
       stochChartRef.current = null;
       stochKRef.current     = null;
