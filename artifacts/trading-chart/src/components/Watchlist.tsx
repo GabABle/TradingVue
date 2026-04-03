@@ -64,6 +64,7 @@ function SymbolRow({
   onDragEnd,
   onDragOver,
   onDrop,
+  onChangePercent,
 }: {
   symbol: string;
   isActive: boolean;
@@ -76,8 +77,14 @@ function SymbolRow({
   onDragEnd: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent, symbol: string) => void;
   onDrop: (e: React.DragEvent, sectionId?: string) => void;
+  onChangePercent?: (symbol: string, pct: number | null) => void;
 }) {
   const { data: quote } = useGetQuote({ symbol }, { query: { refetchInterval: 15000 } });
+
+  // Report changePercent to parent for sorting
+  useEffect(() => {
+    onChangePercent?.(symbol, quote?.changePercent ?? null);
+  }, [symbol, quote?.changePercent, onChangePercent]);
   const session   = (quote as any)?.session  as MarketSession | undefined;
   const prevClose = (quote as any)?.prevClose    as number | null | undefined;
   const regularClose = (quote as any)?.regularClose as number | null | undefined;
@@ -250,8 +257,23 @@ function SectionHeader({
   );
 }
 
+type SortDir = "desc" | "asc" | null;
+
 export function Watchlist({ symbols, activeSymbol, onSelect, onAdd, onRemove, onSearchOpen, fullHeight }: WatchlistProps) {
   const [sections, setSections] = useState<WatchlistSection[]>(() => loadSections(symbols));
+  const [sortDir, setSortDir] = useState<SortDir>(null);
+  const [pctMap, setPctMap] = useState<Record<string, number | null>>({});
+
+  const handleChangePercent = useCallback((sym: string, pct: number | null) => {
+    setPctMap(prev => {
+      if (prev[sym] === pct) return prev;
+      return { ...prev, [sym]: pct };
+    });
+  }, []);
+
+  const toggleSort = useCallback(() => {
+    setSortDir(d => d === null ? "desc" : d === "desc" ? "asc" : null);
+  }, []);
 
   // --- Symbol drag state ---
   const symbolDragState = useRef<SymbolDragState | null>(null);
@@ -450,7 +472,16 @@ export function Watchlist({ symbols, activeSymbol, onSelect, onAdd, onRemove, on
         <div className="flex items-center px-3 pt-1.5 pb-0.5 border-b border-[#2a2e39]/50 shrink-0">
           <div className="w-5 shrink-0" />
           <div className="flex-1 text-[9px] font-semibold text-[#4c525e] tracking-widest uppercase">Symbol</div>
-          <div className="w-[46px] shrink-0 text-right text-[9px] font-semibold text-[#4c525e] tracking-widest uppercase">%</div>
+          <button
+            onClick={toggleSort}
+            title={sortDir === null ? "Sort by % change (high→low)" : sortDir === "desc" ? "Sort by % change (low→high)" : "Clear sort"}
+            className={`w-[46px] shrink-0 flex items-center justify-end gap-0.5 text-[9px] font-semibold tracking-widest uppercase transition-colors hover:text-[#d1d4dc] ${sortDir !== null ? "text-[#2962ff]" : "text-[#4c525e]"}`}
+          >
+            %
+            <span className="text-[8px] leading-none">
+              {sortDir === "desc" ? "▼" : sortDir === "asc" ? "▲" : ""}
+            </span>
+          </button>
           <div className="w-[46px] shrink-0 text-right text-[9px] font-semibold text-[#4c525e] tracking-widest uppercase">Close</div>
           <div className="w-[40px] shrink-0 text-right text-[9px] font-semibold text-[#f59e0b]/70 tracking-widest uppercase">Ext</div>
         </div>
@@ -512,7 +543,17 @@ export function Watchlist({ symbols, activeSymbol, onSelect, onAdd, onRemove, on
 
                 {!section.collapsed && (
                   <>
-                    {section.symbols.map((sym) => (
+                    {(sortDir !== null
+                      ? [...section.symbols].sort((a, b) => {
+                          const pa = pctMap[a] ?? null;
+                          const pb = pctMap[b] ?? null;
+                          if (pa === null && pb === null) return 0;
+                          if (pa === null) return 1;
+                          if (pb === null) return -1;
+                          return sortDir === "desc" ? pb - pa : pa - pb;
+                        })
+                      : section.symbols
+                    ).map((sym) => (
                       <SymbolRow
                         key={sym}
                         symbol={sym}
@@ -526,6 +567,7 @@ export function Watchlist({ symbols, activeSymbol, onSelect, onAdd, onRemove, on
                         onDragEnd={handleSymbolDragEnd}
                         onDragOver={(e, s) => handleSymbolDragOver(e, section.id, s)}
                         onDrop={(e) => handleSymbolDrop(e, section.id)}
+                        onChangePercent={handleChangePercent}
                       />
                     ))}
 
