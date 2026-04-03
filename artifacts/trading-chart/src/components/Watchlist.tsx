@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Plus, X, Star, GripVertical, ChevronDown, ChevronRight, Pencil, Check, Trash2 } from "lucide-react";
+import { Plus, X, Star, GripVertical, ChevronDown, ChevronRight, Pencil, Check, Trash2, Bell } from "lucide-react";
 import { useGetQuote } from "@workspace/api-client-react";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   type WatchlistSection,
   createSection,
@@ -8,6 +9,8 @@ import {
   saveSections,
   syncSectionsWithSymbols,
 } from "@/lib/watchlist-sections";
+
+const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
 type MarketSession = "pre" | "regular" | "after" | "closed";
 
@@ -32,6 +35,7 @@ interface WatchlistProps {
   onAdd: (symbol: string) => void;
   onRemove: (symbol: string) => void;
   onSearchOpen: (initial?: string) => void;
+  onAlertOpen: (symbol: string, currentPrice: number | null) => void;
   fullHeight?: boolean;
 }
 
@@ -58,8 +62,10 @@ function SymbolRow({
   isFaded,
   isDragOver,
   dragOverTop,
+  hasAlert,
   onClick,
   onRemove,
+  onAlertClick,
   onDragStart,
   onDragEnd,
   onDragOver,
@@ -71,8 +77,10 @@ function SymbolRow({
   isFaded: boolean;
   isDragOver: boolean;
   dragOverTop: boolean;
+  hasAlert: boolean;
   onClick: () => void;
   onRemove: () => void;
+  onAlertClick: (price: number | null) => void;
   onDragStart: (e: React.DragEvent) => void;
   onDragEnd: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent, symbol: string) => void;
@@ -161,8 +169,22 @@ function SymbolRow({
           ) : null}
         </div>
 
+        {/* Bell icon — always visible, amber when alert active */}
         <button
-          className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-[#ef5350] text-[#787b86] transition-all z-10 bg-[#131722]/80"
+          className={`shrink-0 p-0.5 rounded transition-all z-10 ${
+            hasAlert
+              ? "text-[#f59e0b] hover:text-[#f59e0b]/70"
+              : "text-[#2a2e39] opacity-0 group-hover:opacity-100 group-hover:text-[#4c525e] hover:text-[#787b86]"
+          }`}
+          onClick={(e) => { e.stopPropagation(); onAlertClick(quote?.price ?? null); }}
+          title={hasAlert ? "Alert active — click to manage" : "Set price alert"}
+        >
+          <Bell className={`w-3 h-3 ${hasAlert ? "fill-[#f59e0b]/20" : ""}`} />
+        </button>
+
+        {/* Remove button — hover only */}
+        <button
+          className="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-[#ef5350] text-[#787b86] transition-all z-10"
           onClick={(e) => { e.stopPropagation(); onRemove(); }}
           title="Remove"
         >
@@ -259,10 +281,30 @@ function SectionHeader({
 
 type SortDir = "desc" | "asc" | null;
 
-export function Watchlist({ symbols, activeSymbol, onSelect, onAdd, onRemove, onSearchOpen, fullHeight }: WatchlistProps) {
+export function Watchlist({ symbols, activeSymbol, onSelect, onAdd, onRemove, onSearchOpen, onAlertOpen, fullHeight }: WatchlistProps) {
+  const { authFetch } = useAuth();
   const [sections, setSections] = useState<WatchlistSection[]>(() => loadSections(symbols));
   const [sortDir, setSortDir] = useState<SortDir>(null);
   const [pctMap, setPctMap] = useState<Record<string, number | null>>({});
+
+  // Set of symbols that have at least one active alert for this user
+  const [alertedSymbols, setAlertedSymbols] = useState<Set<string>>(new Set());
+
+  const refreshAlerts = useCallback(async () => {
+    try {
+      const r = await authFetch(`${BASE}/api/alerts`);
+      if (r.ok) {
+        const data = await r.json() as { alerts: Array<{ symbol: string }> };
+        setAlertedSymbols(new Set(data.alerts.map(a => a.symbol)));
+      }
+    } catch { /* ignore */ }
+  }, [authFetch]);
+
+  useEffect(() => {
+    refreshAlerts();
+    const iv = setInterval(refreshAlerts, 10_000);
+    return () => clearInterval(iv);
+  }, [refreshAlerts]);
 
   const handleChangePercent = useCallback((sym: string, pct: number | null) => {
     setPctMap(prev => {
@@ -561,8 +603,10 @@ export function Watchlist({ symbols, activeSymbol, onSelect, onAdd, onRemove, on
                         isFaded={sym === draggingSymbol}
                         isDragOver={symbolDropTarget?.sectionId === section.id && symbolDropTarget?.insertBefore === sym}
                         dragOverTop={true}
+                        hasAlert={alertedSymbols.has(sym)}
                         onClick={() => onSelect(sym)}
                         onRemove={() => onRemove(sym)}
+                        onAlertClick={(price) => { onAlertOpen(sym, price); refreshAlerts(); }}
                         onDragStart={(e) => handleSymbolDragStart(e, sym, section.id)}
                         onDragEnd={handleSymbolDragEnd}
                         onDragOver={(e, s) => handleSymbolDragOver(e, section.id, s)}

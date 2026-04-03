@@ -15,6 +15,7 @@ interface RightPanelProps {
   onAdd: (symbol: string) => void;
   onRemove: (symbol: string) => void;
   onSearchOpen: (initial?: string) => void;
+  onAlertOpen: (symbol: string, currentPrice: number | null) => void;
   chatContext?: {
     symbol?: string;
     range?: string;
@@ -46,6 +47,7 @@ export function RightPanel({
   onAdd,
   onRemove,
   onSearchOpen,
+  onAlertOpen,
   chatContext,
 }: RightPanelProps) {
   const [width, setWidth]           = useState<number>(loadWidth);
@@ -159,6 +161,7 @@ export function RightPanel({
           onAdd={onAdd}
           onRemove={onRemove}
           onSearchOpen={onSearchOpen}
+          onAlertOpen={onAlertOpen}
           fullHeight
         />
       </div>

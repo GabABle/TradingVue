@@ -77,6 +77,8 @@ export default function TradingTerminal() {
   const [searchOpen, setSearchOpen]       = useState(false);
   const [searchInitial, setSearchInitial] = useState("");
   const [alertOpen, setAlertOpen]         = useState(false);
+  const [alertSymbol, setAlertSymbol]     = useState(symbol);
+  const [alertPrice, setAlertPrice]       = useState<number | null>(null);
   const [tradeOpen, setTradeOpen]         = useState(false);
 
   // ── Persist chart prefs to localStorage ───────────────────────────────────
@@ -132,6 +134,17 @@ export default function TradingTerminal() {
     if (typeof Notification !== "undefined" && Notification.permission === "default") {
       Notification.requestPermission().catch(() => {});
     }
+    setAlertSymbol(symbol);
+    setAlertPrice(null);
+    setAlertOpen(true);
+  }, [symbol]);
+
+  const handleAlertOpen = useCallback((sym: string, price: number | null) => {
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
+    }
+    setAlertSymbol(sym);
+    setAlertPrice(price);
     setAlertOpen(true);
   }, []);
 
@@ -301,6 +314,7 @@ export default function TradingTerminal() {
           onAdd={sym => setWatchlist(p => p.includes(sym) ? p : [...p, sym])}
           onRemove={sym => setWatchlist(p => p.filter(s => s !== sym))}
           onSearchOpen={openSearch}
+          onAlertOpen={handleAlertOpen}
           chatContext={{ symbol, range: selectedRange, interval, showRSI, showStoch, smaPeriod, emaPeriod }}
         />
       </div>
@@ -314,8 +328,8 @@ export default function TradingTerminal() {
 
       <AlertModal
         open={alertOpen}
-        symbol={symbol}
-        currentPrice={(quoteData as any)?.price ?? null}
+        symbol={alertSymbol}
+        currentPrice={alertPrice ?? (alertSymbol === symbol ? ((quoteData as any)?.price ?? null) : null)}
         onClose={() => setAlertOpen(false)}
       />
 
