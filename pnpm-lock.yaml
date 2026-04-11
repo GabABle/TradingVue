@@ -167,6 +167,9 @@ importers:
       typescript:
         specifier: ~5.9.2
         version: 5.9.3
+      vite:
+        specifier: 7.3.1
+        version: 7.3.1(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.21.0)(yaml@2.8.2)
 
   artifacts/api-server:
     dependencies:
