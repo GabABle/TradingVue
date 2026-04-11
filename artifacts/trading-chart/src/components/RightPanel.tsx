@@ -2,6 +2,7 @@ import { useRef, useState, useCallback, useEffect } from "react";
 import { Watchlist } from "@/components/Watchlist";
 import { NewsPanel } from "@/components/NewsPanel";
 import { ChatPanel } from "@/components/ChatPanel";
+import { type WatchlistSection } from "@/lib/watchlist-sections";
 
 const MIN_WIDTH    = 180;
 const MAX_WIDTH    = 520;
@@ -9,11 +10,10 @@ const DEFAULT_WIDTH = 208;
 const STORAGE_KEY_WIDTH = "tradingTerminalRightPanelWidth";
 
 interface RightPanelProps {
-  symbols: string[];
+  sections: WatchlistSection[];
+  onSectionsChange: (sections: WatchlistSection[]) => void;
   activeSymbol: string;
   onSelect: (symbol: string) => void;
-  onAdd: (symbol: string) => void;
-  onRemove: (symbol: string) => void;
   onSearchOpen: (initial?: string) => void;
   onAlertOpen: (symbol: string, currentPrice: number | null) => void;
   chatContext?: {
@@ -41,11 +41,10 @@ function loadWidth(): number {
 type DragTarget = "panel" | "news" | "chat" | null;
 
 export function RightPanel({
-  symbols,
+  sections,
+  onSectionsChange,
   activeSymbol,
   onSelect,
-  onAdd,
-  onRemove,
   onSearchOpen,
   onAlertOpen,
   chatContext,
@@ -155,11 +154,10 @@ export function RightPanel({
       {/* ── Watchlist (takes remaining height) ── */}
       <div className="flex-1 min-h-0 overflow-hidden">
         <Watchlist
-          symbols={symbols}
+          sections={sections}
+          onSectionsChange={onSectionsChange}
           activeSymbol={activeSymbol}
           onSelect={onSelect}
-          onAdd={onAdd}
-          onRemove={onRemove}
           onSearchOpen={onSearchOpen}
           onAlertOpen={onAlertOpen}
           fullHeight

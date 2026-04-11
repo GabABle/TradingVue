@@ -79,3 +79,15 @@ export function syncSectionsWithSymbols(
 
   return [{ ...cleaned[0], symbols: [...cleaned[0].symbols, ...newSyms] }, ...cleaned.slice(1)];
 }
+
+/** Add a symbol to the first section (no-op if already present anywhere). */
+export function addSymbolToSections(sections: WatchlistSection[], symbol: string): WatchlistSection[] {
+  if (sections.some((s) => s.symbols.includes(symbol))) return sections;
+  if (sections.length === 0) return [createSection("Watchlist", [symbol])];
+  return [{ ...sections[0], symbols: [...sections[0].symbols, symbol] }, ...sections.slice(1)];
+}
+
+/** Remove a symbol from all sections. */
+export function removeSymbolFromSections(sections: WatchlistSection[], symbol: string): WatchlistSection[] {
+  return sections.map((s) => ({ ...s, symbols: s.symbols.filter((sym) => sym !== symbol) }));
+}

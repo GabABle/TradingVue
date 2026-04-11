@@ -13,7 +13,21 @@ router.get("/user/watchlist", requireAuth, async (req, res) => {
       "SELECT symbols FROM user_watchlists WHERE user_id = $1",
       [userId],
     );
-    res.json({ symbols: (result.rows[0]?.symbols as string[]) ?? [] });
+    const data = result.rows[0]?.symbols;
+
+    if (!data) {
+      // No record yet
+      res.json({ sections: null });
+      return;
+    }
+
+    // Detect format: new = array of section objects, old = array of strings
+    if (Array.isArray(data) && data.length > 0 && typeof data[0] === "object" && data[0] !== null) {
+      res.json({ sections: data });
+    } else {
+      // Old flat-symbols format — return as-is so client can migrate
+      res.json({ symbols: (data as string[]) });
+    }
   } catch (err) {
     req.log.error(err, "Get watchlist failed");
     res.status(500).json({ error: "Failed to load watchlist" });
@@ -22,17 +36,21 @@ router.get("/user/watchlist", requireAuth, async (req, res) => {
 
 router.put("/user/watchlist", requireAuth, async (req, res) => {
   const { userId } = req.user!;
-  const { symbols } = req.body as { symbols?: unknown };
-  if (!Array.isArray(symbols)) {
-    res.status(400).json({ error: "symbols must be an array" });
+  const body = req.body as { sections?: unknown; symbols?: unknown };
+
+  // Accept either sections (new) or symbols (old/compat)
+  const data = body.sections ?? body.symbols;
+  if (!Array.isArray(data)) {
+    res.status(400).json({ error: "sections must be an array" });
     return;
   }
+
   try {
     await pool.query(
       `INSERT INTO user_watchlists (user_id, symbols, updated_at)
        VALUES ($1, $2::jsonb, NOW())
        ON CONFLICT (user_id) DO UPDATE SET symbols = $2::jsonb, updated_at = NOW()`,
-      [userId, JSON.stringify(symbols)],
+      [userId, JSON.stringify(data)],
     );
     res.json({ success: true });
   } catch (err) {

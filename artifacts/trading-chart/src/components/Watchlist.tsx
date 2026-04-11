@@ -5,9 +5,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import {
   type WatchlistSection,
   createSection,
-  loadSections,
-  saveSections,
-  syncSectionsWithSymbols,
+  addSymbolToSections,
+  removeSymbolFromSections,
+  DEFAULT_STOCKS,
 } from "@/lib/watchlist-sections";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
@@ -29,17 +29,14 @@ function SessionPill({ session }: { session?: MarketSession }) {
 }
 
 interface WatchlistProps {
-  symbols: string[];
+  sections: WatchlistSection[];
+  onSectionsChange: (sections: WatchlistSection[]) => void;
   activeSymbol: string;
   onSelect: (symbol: string) => void;
-  onAdd: (symbol: string) => void;
-  onRemove: (symbol: string) => void;
   onSearchOpen: (initial?: string) => void;
   onAlertOpen: (symbol: string, currentPrice: number | null) => void;
   fullHeight?: boolean;
 }
-
-const DEFAULT_SYMBOLS = ["AAPL", "MSFT", "TSLA", "GOOGL", "NVDA", "AMZN", "BTCUSD", "ETHUSD"];
 
 interface SymbolDragState {
   symbol: string;
@@ -281,9 +278,28 @@ function SectionHeader({
 
 type SortDir = "desc" | "asc" | null;
 
-export function Watchlist({ symbols, activeSymbol, onSelect, onAdd, onRemove, onSearchOpen, onAlertOpen, fullHeight }: WatchlistProps) {
+export function Watchlist({ sections: propSections, onSectionsChange, activeSymbol, onSelect, onSearchOpen, onAlertOpen, fullHeight }: WatchlistProps) {
   const { authFetch } = useAuth();
-  const [sections, setSections] = useState<WatchlistSection[]>(() => loadSections(symbols));
+
+  // Local state mirrors the prop for instant UI updates; syncs back to parent via onSectionsChange.
+  const [sections, setSections] = useState<WatchlistSection[]>(propSections);
+  const fromParentRef = useRef(false);
+
+  // When parent updates sections (DB load), push them into local state.
+  useEffect(() => {
+    fromParentRef.current = true;
+    setSections(propSections);
+  }, [propSections]);
+
+  // Whenever local sections change due to user action, notify parent to auto-save.
+  useEffect(() => {
+    if (fromParentRef.current) {
+      fromParentRef.current = false;
+      return;
+    }
+    onSectionsChange(sections);
+  }, [sections]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const [sortDir, setSortDir] = useState<SortDir>(null);
   const [pctMap, setPctMap] = useState<Record<string, number | null>>({});
 
@@ -327,15 +343,6 @@ export function Watchlist({ symbols, activeSymbol, onSelect, onAdd, onRemove, on
   const [draggingSection, setDraggingSection] = useState<string | null>(null);
   const [sectionDropBefore, setSectionDropBefore] = useState<string | null>(null); // sectionId to insert before, "__end__" for end
 
-  useEffect(() => {
-    setSections((prev) => {
-      const next = syncSectionsWithSymbols(prev, symbols);
-      if (JSON.stringify(next) === JSON.stringify(prev)) return prev;
-      return next;
-    });
-  }, [symbols]);
-
-  useEffect(() => { saveSections(sections); }, [sections]);
 
   const addSection = useCallback(() => {
     setSections((prev) => [...prev, createSection(`Group ${prev.length + 1}`)]);
@@ -351,10 +358,10 @@ export function Watchlist({ symbols, activeSymbol, onSelect, onAdd, onRemove, on
       if (!target) return prev;
       const orphaned = target.symbols;
       const remaining = prev.filter((s) => s.id !== id);
-      if (remaining.length === 0) { orphaned.forEach(onRemove); return []; }
+      if (remaining.length === 0) return [];
       return [{ ...remaining[0], symbols: [...remaining[0].symbols, ...orphaned] }, ...remaining.slice(1)];
     });
-  }, [onRemove]);
+  }, [setSections]);
 
   const toggleCollapse = useCallback((id: string) => {
     setSections((prev) => prev.map((s) => s.id === id ? { ...s, collapsed: !s.collapsed } : s));
@@ -605,7 +612,7 @@ export function Watchlist({ symbols, activeSymbol, onSelect, onAdd, onRemove, on
                         dragOverTop={true}
                         hasAlert={alertedSymbols.has(sym)}
                         onClick={() => onSelect(sym)}
-                        onRemove={() => onRemove(sym)}
+                        onRemove={() => setSections(prev => removeSymbolFromSections(prev, sym))}
                         onAlertClick={(price) => { onAlertOpen(sym, price); refreshAlerts(); }}
                         onDragStart={(e) => handleSymbolDragStart(e, sym, section.id)}
                         onDragEnd={handleSymbolDragEnd}
@@ -643,7 +650,7 @@ export function Watchlist({ symbols, activeSymbol, onSelect, onAdd, onRemove, on
         <div className="border-t border-[#2a2e39] p-3 shrink-0">
           <button
             className="w-full text-xs text-[#787b86] hover:text-[#d1d4dc] transition-colors text-center"
-            onClick={() => DEFAULT_SYMBOLS.forEach(onAdd)}
+            onClick={() => setSections(prev => DEFAULT_STOCKS.reduce((acc, sym) => addSymbolToSections(acc, sym), prev))}
           >
             + Add defaults
           </button>

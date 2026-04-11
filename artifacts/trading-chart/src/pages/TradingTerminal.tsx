@@ -18,6 +18,13 @@ import {
   resolveInterval,
 } from "@/lib/ranges";
 import { Activity, AlertCircle, Star } from "lucide-react";
+import {
+  type WatchlistSection,
+  loadSections,
+  saveSections,
+  addSymbolToSections,
+  removeSymbolFromSections,
+} from "@/lib/watchlist-sections";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
@@ -74,13 +81,18 @@ export default function TradingTerminal() {
   const [showStoch, setShowStoch]         = useState(saved.showStoch);
   const [smaPeriod, setSmaPeriod]         = useState<number | null>(saved.smaPeriod);
   const [emaPeriod, setEmaPeriod]         = useState<number | null>(saved.emaPeriod);
-  const [watchlist, setWatchlist]         = useState<string[]>(DEFAULT_WATCHLIST);
+  // Sections are the source of truth for the watchlist (loaded from localStorage immediately,
+  // then superseded by DB data once fetched).
+  const [sections, setSections]           = useState<WatchlistSection[]>(() => loadSections(DEFAULT_WATCHLIST));
   const [searchOpen, setSearchOpen]       = useState(false);
   const [searchInitial, setSearchInitial] = useState("");
   const [alertOpen, setAlertOpen]         = useState(false);
   const [alertSymbol, setAlertSymbol]     = useState(symbol);
   const [alertPrice, setAlertPrice]       = useState<number | null>(null);
   const [tradeOpen, setTradeOpen]         = useState(false);
+
+  // Flat symbol list derived from sections (single source of truth)
+  const watchlist = useMemo(() => sections.flatMap((s) => s.symbols), [sections]);
 
   // ── Persist chart prefs to localStorage ───────────────────────────────────
   useEffect(() => {
@@ -91,44 +103,55 @@ export default function TradingTerminal() {
     } catch { /* ignore */ }
   }, [symbol, selectedRange, interval, showRSI, showStoch, smaPeriod, emaPeriod]);
 
-  // ── Load watchlist from API on mount ──────────────────────────────────────
+  // ── Load sections from DB on mount (supersedes localStorage) ──────────────
+  const dbLoaded = useRef(false);
   useEffect(() => {
     authFetch(`${BASE}/api/user/watchlist`)
-      .then(r => r.ok ? r.json() as Promise<{ symbols: string[] }> : Promise.reject())
-      .then(data => {
-        if (Array.isArray(data.symbols) && data.symbols.length > 0) {
-          setWatchlist(data.symbols);
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then((data: { sections?: WatchlistSection[]; symbols?: string[] }) => {
+        dbLoaded.current = true;
+        if (Array.isArray(data.sections) && data.sections.length > 0) {
+          // New format: full sections from DB
+          setSections(data.sections);
+          saveSections(data.sections); // keep localStorage in sync
+        } else if (Array.isArray(data.symbols) && data.symbols.length > 0) {
+          // Old flat-symbols format: migrate using current localStorage structure
+          const migrated = loadSections(data.symbols);
+          setSections(migrated);
         } else {
-          // First time: save the default watchlist for this user
-          setWatchlist(DEFAULT_WATCHLIST);
-          authFetch(`${BASE}/api/user/watchlist`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ symbols: DEFAULT_WATCHLIST }),
-          }).catch(() => {});
+          // First-time user: save current (localStorage) sections to DB
+          setSections(prev => {
+            authFetch(`${BASE}/api/user/watchlist`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ sections: prev }),
+            }).catch(() => {});
+            return prev;
+          });
         }
       })
-      .catch(() => {/* stay with DEFAULT_WATCHLIST on error */});
+      .catch(() => { dbLoaded.current = true; /* keep localStorage sections on error */ });
   }, [authFetch]);
 
-  // ── Debounce-save watchlist to API ────────────────────────────────────────
-  const watchlistInitialized = useRef(false);
-
+  // ── Auto-save sections to DB + localStorage on every change ───────────────
+  const sectionsInitialized = useRef(false);
   useEffect(() => {
-    // Skip the very first render (initial DEFAULT_WATCHLIST)
-    if (!watchlistInitialized.current) {
-      watchlistInitialized.current = true;
+    if (!sectionsInitialized.current) {
+      sectionsInitialized.current = true;
       return;
     }
+    // Always keep localStorage up-to-date immediately
+    saveSections(sections);
+    // Debounce the DB write
     const timer = setTimeout(() => {
       authFetch(`${BASE}/api/user/watchlist`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbols: watchlist }),
+        body: JSON.stringify({ sections }),
       }).catch(() => {});
-    }, 1_000);
+    }, 800);
     return () => clearTimeout(timer);
-  }, [watchlist, authFetch]);
+  }, [sections, authFetch]);
 
   // ── Alert permission + SSE ────────────────────────────────────────────────
   const openAlerts = useCallback(() => {
@@ -216,8 +239,8 @@ export default function TradingTerminal() {
 
   const isInWatchlist = watchlist.includes(symbol);
   const toggleWatchlist = () => {
-    if (isInWatchlist) setWatchlist(prev => prev.filter(s => s !== symbol));
-    else               setWatchlist(prev => [symbol, ...prev]);
+    if (isInWatchlist) setSections(prev => removeSymbolFromSections(prev, symbol));
+    else               setSections(prev => addSymbolToSections(prev, symbol));
   };
 
   return (
@@ -312,11 +335,10 @@ export default function TradingTerminal() {
         </main>
 
         <RightPanel
-          symbols={watchlist}
+          sections={sections}
+          onSectionsChange={setSections}
           activeSymbol={symbol}
           onSelect={setSymbol}
-          onAdd={sym => setWatchlist(p => p.includes(sym) ? p : [...p, sym])}
-          onRemove={sym => setWatchlist(p => p.filter(s => s !== sym))}
           onSearchOpen={openSearch}
           onAlertOpen={handleAlertOpen}
           chatContext={{ symbol, range: selectedRange, interval, showRSI, showStoch, smaPeriod, emaPeriod }}
