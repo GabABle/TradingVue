@@ -109,6 +109,8 @@ export function ChartWidget({
 
   // Prevents circular crosshair sync callbacks
   const isSyncingCrosshairRef = useRef(false);
+  // Prevents circular time-scale sync callbacks (shared across ALL sync handlers)
+  const isSyncingRangeRef = useRef(false);
 
   // ── Main chart: init once ────────────────────────────────────────────────
   useEffect(() => {
@@ -147,6 +149,23 @@ export function ChartWidget({
     candleRef.current    = candle!;
     volumeRef.current    = volume!;
 
+    // ── Primary range sync: main → sub-charts ────────────────────────────
+    // Fires on every zoom AND pan. Reads sub-chart refs dynamically so it
+    // works regardless of when RSI/Stoch panels are mounted.
+    const onMainRangeChange = () => {
+      if (isSyncingRangeRef.current) return;
+      const r = chart.timeScale().getVisibleRange();
+      if (!r) return;
+      isSyncingRangeRef.current = true;
+      // Only sync sub-charts that have data (getVisibleLogicalRange returns non-null when data exists)
+      if (rsiChartRef.current && rsiChartRef.current.timeScale().getVisibleLogicalRange() != null)
+        safe(() => rsiChartRef.current!.timeScale().setVisibleRange(r), 'range-rsi');
+      if (stochChartRef.current && stochChartRef.current.timeScale().getVisibleLogicalRange() != null)
+        safe(() => stochChartRef.current!.timeScale().setVisibleRange(r), 'range-stoch');
+      isSyncingRangeRef.current = false;
+    };
+    safe(() => chart.timeScale().subscribeVisibleLogicalRangeChange(onMainRangeChange), 'range-sub');
+
     let rafId = 0;
     const ro = new ResizeObserver(() => {
       cancelAnimationFrame(rafId);
@@ -163,6 +182,7 @@ export function ChartWidget({
     return () => {
       cancelAnimationFrame(rafId);
       ro.disconnect();
+      safe(() => chart.timeScale().unsubscribeVisibleLogicalRangeChange(onMainRangeChange), 'range-unsub');
       safe(() => chart.remove(), 'chart-remove');
       mainChartRef.current = null;
       candleRef.current    = null;
@@ -251,32 +271,23 @@ export function ChartWidget({
 
     const mainChart = mainChartRef.current;
 
-    // ── Time-scale sync (zoom/pan) ─────────────────────────────────────────
-    // Subscribe to LOGICAL range changes (fires on both scroll/zoom AND pan).
-    // Sync using the actual TIME range so both charts show the same calendar
-    // window regardless of data-length differences (RSI starts 14 bars later).
-    let isSyncingRange = false;
-    let syncMain: (() => void) | null = null;
-    let syncRsi:  (() => void) | null = null;
+    // ── Reverse range sync: RSI → main (and stoch) ────────────────────────
+    // The PRIMARY sync (main → RSI) is handled by the main chart init effect
+    // using the shared isSyncingRangeRef. Here we only handle the reverse:
+    // when the user pans/zooms the RSI panel itself, propagate to main + stoch.
+    let onRsiRangeChange: (() => void) | null = null;
     if (mainChart) {
-      syncMain = () => {
-        if (isSyncingRange) return;
-        const r = mainChart.timeScale().getVisibleRange();
-        if (!r) return;
-        isSyncingRange = true;
-        safe(() => rsiChart.timeScale().setVisibleRange(r));
-        isSyncingRange = false;
-      };
-      syncRsi = () => {
-        if (isSyncingRange) return;
+      onRsiRangeChange = () => {
+        if (isSyncingRangeRef.current) return;
         const r = rsiChart.timeScale().getVisibleRange();
         if (!r) return;
-        isSyncingRange = true;
-        safe(() => mainChart.timeScale().setVisibleRange(r));
-        isSyncingRange = false;
+        isSyncingRangeRef.current = true;
+        safe(() => mainChart.timeScale().setVisibleRange(r), 'rsi-range-main');
+        if (stochChartRef.current && stochChartRef.current.timeScale().getVisibleLogicalRange() != null)
+          safe(() => stochChartRef.current!.timeScale().setVisibleRange(r), 'rsi-range-stoch');
+        isSyncingRangeRef.current = false;
       };
-      safe(() => mainChart.timeScale().subscribeVisibleLogicalRangeChange(syncMain!));
-      safe(() => rsiChart.timeScale().subscribeVisibleLogicalRangeChange(syncRsi!));
+      safe(() => rsiChart.timeScale().subscribeVisibleLogicalRangeChange(onRsiRangeChange!), 'rsi-range-sub');
     }
 
     // ── Crosshair sync ───────────────────────────────────────────────────
@@ -341,8 +352,7 @@ export function ChartWidget({
       ro.disconnect();
       unsubMainCursor?.();
       unsubRsiCursor?.();
-      if (mainChart && syncMain) safe(() => mainChart.timeScale().unsubscribeVisibleLogicalRangeChange(syncMain!));
-      if (syncRsi) safe(() => rsiChart.timeScale().unsubscribeVisibleLogicalRangeChange(syncRsi!));
+      if (onRsiRangeChange) safe(() => rsiChart.timeScale().unsubscribeVisibleLogicalRangeChange(onRsiRangeChange!), 'rsi-range-unsub');
       safe(() => rsiChart.remove());
       rsiChartRef.current = null;
       rsiRef.current      = null;
@@ -371,30 +381,22 @@ export function ChartWidget({
 
     const mainChart = mainChartRef.current;
 
-    // ── Time-scale sync (zoom/pan) ─────────────────────────────────────────
-    // Same approach as RSI: logical range subscription + time range sync.
-    let isSyncingRange = false;
-    let syncMain:  (() => void) | null = null;
-    let syncStoch: (() => void) | null = null;
+    // ── Reverse range sync: Stoch → main (and RSI) ────────────────────────
+    // The PRIMARY sync (main → Stoch) is handled by the main chart init effect.
+    // Here we only handle the reverse: user pans/zooms the Stoch panel.
+    let onStochRangeChange: (() => void) | null = null;
     if (mainChart) {
-      syncMain = () => {
-        if (isSyncingRange) return;
-        const r = mainChart.timeScale().getVisibleRange();
-        if (!r) return;
-        isSyncingRange = true;
-        safe(() => stochChart.timeScale().setVisibleRange(r));
-        isSyncingRange = false;
-      };
-      syncStoch = () => {
-        if (isSyncingRange) return;
+      onStochRangeChange = () => {
+        if (isSyncingRangeRef.current) return;
         const r = stochChart.timeScale().getVisibleRange();
         if (!r) return;
-        isSyncingRange = true;
-        safe(() => mainChart.timeScale().setVisibleRange(r));
-        isSyncingRange = false;
+        isSyncingRangeRef.current = true;
+        safe(() => mainChart.timeScale().setVisibleRange(r), 'stoch-range-main');
+        if (rsiChartRef.current && rsiChartRef.current.timeScale().getVisibleLogicalRange() != null)
+          safe(() => rsiChartRef.current!.timeScale().setVisibleRange(r), 'stoch-range-rsi');
+        isSyncingRangeRef.current = false;
       };
-      safe(() => mainChart.timeScale().subscribeVisibleLogicalRangeChange(syncMain!));
-      safe(() => stochChart.timeScale().subscribeVisibleLogicalRangeChange(syncStoch!));
+      safe(() => stochChart.timeScale().subscribeVisibleLogicalRangeChange(onStochRangeChange!), 'stoch-range-sub');
     }
 
     // ── Crosshair sync ───────────────────────────────────────────────────
@@ -459,8 +461,7 @@ export function ChartWidget({
       ro.disconnect();
       unsubMainCursor?.();
       unsubStochCursor?.();
-      if (mainChart && syncMain)  safe(() => mainChart.timeScale().unsubscribeVisibleLogicalRangeChange(syncMain!));
-      if (syncStoch)              safe(() => stochChart.timeScale().unsubscribeVisibleLogicalRangeChange(syncStoch!));
+      if (onStochRangeChange) safe(() => stochChart.timeScale().unsubscribeVisibleLogicalRangeChange(onStochRangeChange!), 'stoch-range-unsub');
       safe(() => stochChart.remove());
       stochChartRef.current = null;
       stochKRef.current     = null;
