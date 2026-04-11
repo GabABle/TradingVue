@@ -1,4 +1,6 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
+import WebSocket from "ws";
+import { optionalAuth } from "../lib/auth-middleware.js";
 
 const router: IRouter = Router();
 
@@ -928,5 +930,105 @@ const POPULAR_CRYPTO = [
   { symbol: "LTCUSD",   alpacaSymbol: "LTC/USD",  name: "Litecoin",  exchange: "Crypto", type: "crypto" },
   { symbol: "UNIUSD",   alpacaSymbol: "UNI/USD",  name: "Uniswap",   exchange: "Crypto", type: "crypto" },
 ];
+
+// ── Live trade streaming via SSE ─────────────────────────────────────────────
+// GET /api/market/stream?symbol=AAPL&interval=1Min&token=JWT
+// Connects to Alpaca's real-time WebSocket, forwards trades as SSE events so
+// the frontend can assemble the forming (incomplete) current candle in real time.
+router.get("/market/stream", optionalAuth, (req: Request, res: Response) => {
+  if (!req.user) { res.status(401).end(); return; }
+
+  const symbol   = (req.query.symbol   as string | undefined)?.toUpperCase().trim();
+  const interval = (req.query.interval as string | undefined) ?? "1Min";
+
+  if (!symbol) { res.status(400).json({ error: "symbol required" }); return; }
+
+  const isCrypto  = /^[A-Z]{2,10}USD$/.test(symbol) && symbol.length >= 5;
+  const isFutures = /[A-Z]=F$/.test(symbol);
+
+  if (isFutures) {
+    res.status(400).json({ error: "Futures real-time streaming is not supported" });
+    return;
+  }
+
+  // SSE headers
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  const send = (event: string, data: object) => {
+    try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch { /* disconnected */ }
+  };
+
+  send("connected", { symbol, interval });
+
+  // Alpaca WebSocket endpoint — IEX is free for all users; crypto has its own endpoint
+  const wsUrl = isCrypto
+    ? "wss://stream.data.alpaca.markets/v2/crypto"
+    : "wss://stream.data.alpaca.markets/v2/iex";
+
+  // Alpaca uses "BTC/USD" format for crypto subscriptions
+  const wsSymbol = isCrypto ? `${symbol.slice(0, -3)}/${symbol.slice(-3)}` : symbol;
+
+  let ws: WebSocket | null = null;
+  let closed = false;
+
+  function openWs() {
+    if (closed) return;
+    ws = new WebSocket(wsUrl);
+
+    ws.on("open", () => {
+      ws!.send(JSON.stringify({
+        action: "auth",
+        key:    ALPACA_API_KEY    ?? "",
+        secret: ALPACA_API_SECRET ?? "",
+      }));
+    });
+
+    ws.on("message", (raw: Buffer) => {
+      let msgs: any[];
+      try { msgs = JSON.parse(raw.toString()); } catch { return; }
+
+      for (const msg of msgs) {
+        if (msg.T === "success" && msg.msg === "authenticated") {
+          ws!.send(JSON.stringify({ action: "subscribe", trades: [wsSymbol] }));
+        } else if (msg.T === "t") {
+          // Trade event — forward just price, size, and timestamp
+          send("trade", { p: msg.p, s: msg.s, t: msg.t });
+        } else if (msg.T === "error") {
+          send("stream_error", { code: msg.code, message: msg.msg });
+        }
+      }
+    });
+
+    ws.on("error", (err) => {
+      console.error("[stream] ws error:", (err as Error).message);
+      send("stream_error", { message: "WebSocket error — will retry" });
+    });
+
+    ws.on("close", () => {
+      if (!closed) {
+        // Reconnect after 5 s
+        setTimeout(openWs, 5_000);
+      }
+    });
+  }
+
+  openWs();
+
+  // Heartbeat every 25 s to keep SSE alive
+  const heartbeat = setInterval(() => {
+    try { res.write(":heartbeat\n\n"); } catch { clearInterval(heartbeat); }
+  }, 25_000);
+
+  req.on("close", () => {
+    closed = true;
+    clearInterval(heartbeat);
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+      ws.close();
+    }
+  });
+});
 
 export default router;

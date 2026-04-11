@@ -7,6 +7,7 @@ import { SymbolSearch } from "@/components/SymbolSearch";
 import { AlertModal } from "@/components/AlertModal";
 import { TradingModal } from "@/components/TradingModal";
 import { useAlertEvents } from "@/hooks/useAlertEvents";
+import { useLiveBar } from "@/hooks/useLiveBar";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   type RangeKey,
@@ -173,6 +174,9 @@ export default function TradingTerminal() {
   );
 
   const { data: quoteData } = useGetQuote({ symbol });
+
+  // ── Live streaming: assemble the forming current candle from trade ticks ──
+  const liveBar = useLiveBar(symbol, interval, token);
   const _session      = (quoteData as any)?.session      as string | undefined;
   const _prevClose    = (quoteData as any)?.prevClose    as number | null | undefined;
   const _regularClose = (quoteData as any)?.regularClose as number | null | undefined;
@@ -282,6 +286,7 @@ export default function TradingTerminal() {
                 referencePrice={referencePrice}
                 extPrice={_extPrice}
                 extSession={_extSession}
+                liveBar={liveBar}
               />
 
               {/* Watchlist star */}

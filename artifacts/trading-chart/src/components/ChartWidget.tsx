@@ -14,6 +14,11 @@ import { calculateSMA, calculateEMA, calculateRSI, calculateStochastic } from '@
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+export interface LiveBar {
+  t: string;
+  o: number; h: number; l: number; c: number; v: number;
+}
+
 interface ChartWidgetProps {
   data: Bar[];
   showRSI: boolean;
@@ -23,6 +28,7 @@ interface ChartWidgetProps {
   referencePrice?: number | null;
   extPrice?: number | null;
   extSession?: "pre" | "after" | null;
+  liveBar?: LiveBar | null;
 }
 
 // ─── Safe runner ───────────────────────────────────────────────────────────────
@@ -73,7 +79,7 @@ const BASE_CHART_OPTIONS = {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function ChartWidget({
-  data, showRSI, showStoch, smaPeriod, emaPeriod, referencePrice, extPrice, extSession,
+  data, showRSI, showStoch, smaPeriod, emaPeriod, referencePrice, extPrice, extSession, liveBar,
 }: ChartWidgetProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const rsiContainerRef   = useRef<HTMLDivElement>(null);
@@ -207,6 +213,21 @@ export function ChartWidget({
       });
     }, 'ext-line-create');
   }, [extPrice, extSession]);
+
+  // ── Live bar: update/append the forming candle in real time ─────────────────
+  useEffect(() => {
+    const candle = candleRef.current;
+    if (!candle || !liveBar) return;
+    safe(() => {
+      candle.update({
+        time:  normalizeTime(liveBar.t),
+        open:  liveBar.o,
+        high:  liveBar.h,
+        low:   liveBar.l,
+        close: liveBar.c,
+      });
+    }, 'live-update');
+  }, [liveBar]);
 
   // ── RSI sub-chart ─────────────────────────────────────────────────────────
   useEffect(() => {
