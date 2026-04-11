@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import {
   createChart,
   ColorType,
+  CrosshairMode,
   CandlestickSeries,
   HistogramSeries,
   LineSeries,
@@ -69,6 +70,7 @@ const BASE_CHART_OPTIONS = {
     horzLines: { color: '#2a2e39', style: 1 as const },
   },
   crosshair: {
+    mode: CrosshairMode.Normal,
     vertLine: { color: '#787b86', width: 1 as const, style: 3 as const, labelBackgroundColor: '#1e222d' },
     horzLine: { color: '#787b86', width: 1 as const, style: 3 as const, labelBackgroundColor: '#1e222d' },
   },
