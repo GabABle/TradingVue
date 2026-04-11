@@ -152,16 +152,15 @@ export function ChartWidget({
     // ── Primary range sync: main → sub-charts ────────────────────────────
     // Fires on every zoom AND pan. Reads sub-chart refs dynamically so it
     // works regardless of when RSI/Stoch panels are mounted.
-    const onMainRangeChange = () => {
-      if (isSyncingRangeRef.current) return;
-      const r = chart.timeScale().getVisibleRange();
-      if (!r) return;
+    // The callback receives the new logical range directly — use it with
+    // setVisibleLogicalRange so the sync always works regardless of zoom level.
+    // (getVisibleRange returns null when zoomed out past data bounds, which
+    // caused the zoom-out sync to silently no-op with the previous approach.)
+    const onMainRangeChange = (lr: any) => {
+      if (isSyncingRangeRef.current || !lr) return;
       isSyncingRangeRef.current = true;
-      // Only sync sub-charts that have data (getVisibleLogicalRange returns non-null when data exists)
-      if (rsiChartRef.current && rsiChartRef.current.timeScale().getVisibleLogicalRange() != null)
-        safe(() => rsiChartRef.current!.timeScale().setVisibleRange(r), 'range-rsi');
-      if (stochChartRef.current && stochChartRef.current.timeScale().getVisibleLogicalRange() != null)
-        safe(() => stochChartRef.current!.timeScale().setVisibleRange(r), 'range-stoch');
+      if (rsiChartRef.current)   safe(() => rsiChartRef.current!.timeScale().setVisibleLogicalRange(lr), 'range-rsi');
+      if (stochChartRef.current) safe(() => stochChartRef.current!.timeScale().setVisibleLogicalRange(lr), 'range-stoch');
       isSyncingRangeRef.current = false;
     };
     safe(() => chart.timeScale().subscribeVisibleLogicalRangeChange(onMainRangeChange), 'range-sub');
@@ -277,14 +276,11 @@ export function ChartWidget({
     // when the user pans/zooms the RSI panel itself, propagate to main + stoch.
     let onRsiRangeChange: (() => void) | null = null;
     if (mainChart) {
-      onRsiRangeChange = () => {
-        if (isSyncingRangeRef.current) return;
-        const r = rsiChart.timeScale().getVisibleRange();
-        if (!r) return;
+      onRsiRangeChange = (lr: any) => {
+        if (isSyncingRangeRef.current || !lr) return;
         isSyncingRangeRef.current = true;
-        safe(() => mainChart.timeScale().setVisibleRange(r), 'rsi-range-main');
-        if (stochChartRef.current && stochChartRef.current.timeScale().getVisibleLogicalRange() != null)
-          safe(() => stochChartRef.current!.timeScale().setVisibleRange(r), 'rsi-range-stoch');
+        safe(() => mainChart.timeScale().setVisibleLogicalRange(lr), 'rsi-range-main');
+        if (stochChartRef.current) safe(() => stochChartRef.current!.timeScale().setVisibleLogicalRange(lr), 'rsi-range-stoch');
         isSyncingRangeRef.current = false;
       };
       safe(() => rsiChart.timeScale().subscribeVisibleLogicalRangeChange(onRsiRangeChange!), 'rsi-range-sub');
@@ -386,14 +382,11 @@ export function ChartWidget({
     // Here we only handle the reverse: user pans/zooms the Stoch panel.
     let onStochRangeChange: (() => void) | null = null;
     if (mainChart) {
-      onStochRangeChange = () => {
-        if (isSyncingRangeRef.current) return;
-        const r = stochChart.timeScale().getVisibleRange();
-        if (!r) return;
+      onStochRangeChange = (lr: any) => {
+        if (isSyncingRangeRef.current || !lr) return;
         isSyncingRangeRef.current = true;
-        safe(() => mainChart.timeScale().setVisibleRange(r), 'stoch-range-main');
-        if (rsiChartRef.current && rsiChartRef.current.timeScale().getVisibleLogicalRange() != null)
-          safe(() => rsiChartRef.current!.timeScale().setVisibleRange(r), 'stoch-range-rsi');
+        safe(() => mainChart.timeScale().setVisibleLogicalRange(lr), 'stoch-range-main');
+        if (rsiChartRef.current) safe(() => rsiChartRef.current!.timeScale().setVisibleLogicalRange(lr), 'stoch-range-rsi');
         isSyncingRangeRef.current = false;
       };
       safe(() => stochChart.timeScale().subscribeVisibleLogicalRangeChange(onStochRangeChange!), 'stoch-range-sub');
