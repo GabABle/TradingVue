@@ -112,6 +112,13 @@ export function ChartWidget({
   // Prevents circular time-scale sync callbacks (shared across ALL sync handlers)
   const isSyncingRangeRef = useRef(false);
 
+  // Bar-count difference between main data and each indicator's data.
+  // RSI(14) first value at bar 14 → offset=14; Stoch(14,3) first at bar 15 → offset=15.
+  // When syncing ranges we subtract the offset so the same TIMESTAMPS land at the
+  // same visual x-position across all panels (and the crosshair vertical lines align).
+  const rsiOffsetRef   = useRef(14);
+  const stochOffsetRef = useRef(15);
+
   // ── Main chart: init once ────────────────────────────────────────────────
   useEffect(() => {
     const el = chartContainerRef.current;
@@ -159,8 +166,11 @@ export function ChartWidget({
     const onMainRangeChange = (lr: any) => {
       if (isSyncingRangeRef.current || !lr) return;
       isSyncingRangeRef.current = true;
-      if (rsiChartRef.current)   safe(() => rsiChartRef.current!.timeScale().setVisibleLogicalRange(lr), 'range-rsi');
-      if (stochChartRef.current) safe(() => stochChartRef.current!.timeScale().setVisibleLogicalRange(lr), 'range-stoch');
+      const ro = rsiOffsetRef.current, so = stochOffsetRef.current;
+      if (rsiChartRef.current)
+        safe(() => rsiChartRef.current!.timeScale().setVisibleLogicalRange({ from: lr.from - ro, to: lr.to - ro }), 'range-rsi');
+      if (stochChartRef.current)
+        safe(() => stochChartRef.current!.timeScale().setVisibleLogicalRange({ from: lr.from - so, to: lr.to - so }), 'range-stoch');
       isSyncingRangeRef.current = false;
     };
     safe(() => chart.timeScale().subscribeVisibleLogicalRangeChange(onMainRangeChange), 'range-sub');
@@ -279,8 +289,10 @@ export function ChartWidget({
       onRsiRangeChange = (lr: any) => {
         if (isSyncingRangeRef.current || !lr) return;
         isSyncingRangeRef.current = true;
-        safe(() => mainChart.timeScale().setVisibleLogicalRange(lr), 'rsi-range-main');
-        if (stochChartRef.current) safe(() => stochChartRef.current!.timeScale().setVisibleLogicalRange(lr), 'rsi-range-stoch');
+        const ro = rsiOffsetRef.current, so = stochOffsetRef.current;
+        safe(() => mainChart.timeScale().setVisibleLogicalRange({ from: lr.from + ro, to: lr.to + ro }), 'rsi-range-main');
+        if (stochChartRef.current)
+          safe(() => stochChartRef.current!.timeScale().setVisibleLogicalRange({ from: lr.from + ro - so, to: lr.to + ro - so }), 'rsi-range-stoch');
         isSyncingRangeRef.current = false;
       };
       safe(() => rsiChart.timeScale().subscribeVisibleLogicalRangeChange(onRsiRangeChange!), 'rsi-range-sub');
@@ -385,8 +397,10 @@ export function ChartWidget({
       onStochRangeChange = (lr: any) => {
         if (isSyncingRangeRef.current || !lr) return;
         isSyncingRangeRef.current = true;
-        safe(() => mainChart.timeScale().setVisibleLogicalRange(lr), 'stoch-range-main');
-        if (rsiChartRef.current) safe(() => rsiChartRef.current!.timeScale().setVisibleLogicalRange(lr), 'stoch-range-rsi');
+        const ro = rsiOffsetRef.current, so = stochOffsetRef.current;
+        safe(() => mainChart.timeScale().setVisibleLogicalRange({ from: lr.from + so, to: lr.to + so }), 'stoch-range-main');
+        if (rsiChartRef.current)
+          safe(() => rsiChartRef.current!.timeScale().setVisibleLogicalRange({ from: lr.from + so - ro, to: lr.to + so - ro }), 'stoch-range-rsi');
         isSyncingRangeRef.current = false;
       };
       safe(() => stochChart.timeScale().subscribeVisibleLogicalRangeChange(onStochRangeChange!), 'stoch-range-sub');
@@ -506,23 +520,23 @@ export function ChartWidget({
     });
 
     // ── RSI ─────────────────────────────────────────────────────────────
+    const rsiValues = calculateRSI(bars, 14);
+    rsiOffsetRef.current = bars.length - rsiValues.length; // = 14
     if (showRSI && rsiRef.current && rsiChartRef.current) safe(() => {
-      const rsiValues = calculateRSI(bars, 14);
       rsiRef.current!.setData(rsiValues.map(d => ({ time: normalizeTime(d.time as string), value: d.value })));
       rsiChartRef.current!.timeScale().fitContent();
-      // Update crosshair data map
       const newRsiMap = new Map<number, number>();
       rsiValues.forEach(d => newRsiMap.set(toEpochSeconds(d.time as string), d.value));
       rsiDataMapRef.current = newRsiMap;
     });
 
     // ── Stochastic ──────────────────────────────────────────────────────
+    const sd = calculateStochastic(bars, 14, 3);
+    stochOffsetRef.current = bars.length - sd.length; // = 15
     if (showStoch && stochKRef.current && stochDRef.current && stochChartRef.current) safe(() => {
-      const sd = calculateStochastic(bars, 14, 3);
       stochKRef.current!.setData(sd.map(d => ({ time: normalizeTime(d.time), value: d.k })));
       stochDRef.current!.setData(sd.map(d => ({ time: normalizeTime(d.time), value: d.d })));
       stochChartRef.current!.timeScale().fitContent();
-      // Update crosshair data map
       const newStochMap = new Map<number, number>();
       sd.forEach(d => newStochMap.set(toEpochSeconds(d.time), d.k));
       stochKDataMapRef.current = newStochMap;
