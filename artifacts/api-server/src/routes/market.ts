@@ -287,12 +287,21 @@ router.get("/market/quote", async (req, res) => {
 
     const snap = await snapResponse.json() as any;
 
-    // latestTrade.p is the most recent trade price — during pre-market this IS
-    // the pre-market price. We no longer fetch the pre-market bars endpoint
-    // separately because Alpaca 403s any bars request with a recent `end` param
-    // on the SIP feed (15-min delay restriction).
     const price = snap.latestTrade?.p ?? snap.dailyBar?.c ?? 0;
-    const preMarketPrice: number | null = session === "pre" ? price : null;
+
+    // Only show a pre-market price line when a trade has actually occurred during
+    // today's pre-market window. If latestTrade.t predates the window start (i.e.
+    // it's yesterday's close), preMarketPrice stays null so no yellow PRE line is
+    // drawn on the chart — avoiding the duplicate-line confusion with the Close line.
+    let preMarketPrice: number | null = null;
+    if (session === "pre" && snap.latestTrade?.p != null && snap.latestTrade?.t) {
+      const pm = getPreMarketWindow();
+      const tradeTs = new Date(snap.latestTrade.t).getTime();
+      const pmStartTs = new Date(pm.start).getTime();
+      if (tradeTs >= pmStartTs) {
+        preMarketPrice = snap.latestTrade.p;
+      }
+    }
 
     const lastRegularClose: number | null =
       session === "pre"

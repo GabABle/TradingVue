@@ -208,11 +208,16 @@ export default function TradingTerminal() {
     _session === "after" ? (_regularClose ?? null) :
     null;
   const _extSession = (_session === "pre" || _session === "after") ? _session : null;
-  // During pre/after-market: latestTrade.p (= `price`) is the current ext price.
-  // The Watchlist uses the same field. preMarketPrice from the bars endpoint was
-  // unreliable (Alpaca 403s the SIP feed for recent timestamps).
+  // For PRE: only use preMarketPrice (set by backend only when latestTrade.t falls
+  // within today's pre-market window). Avoids drawing a yellow PRE line at yesterday's
+  // close when no real pre-market trade has occurred yet.
+  // For AH: price (latestTrade.p) is always the current after-hours trade.
   const _extPrice: number | null =
-    _extSession != null ? ((quoteData as any)?.price ?? null) : null;
+    _extSession === "pre"
+      ? ((quoteData as any)?.preMarketPrice ?? null)
+      : _extSession === "after"
+        ? ((quoteData as any)?.price ?? null)
+        : null;
 
   // ── Keyboard shortcut: any letter opens search ────────────────────────────
   useEffect(() => {
