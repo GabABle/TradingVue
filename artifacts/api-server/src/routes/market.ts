@@ -289,19 +289,10 @@ router.get("/market/quote", async (req, res) => {
 
     const price = snap.latestTrade?.p ?? snap.dailyBar?.c ?? 0;
 
-    // Only show a pre-market price line when a trade has actually occurred during
-    // today's pre-market window. If latestTrade.t predates the window start (i.e.
-    // it's yesterday's close), preMarketPrice stays null so no yellow PRE line is
-    // drawn on the chart — avoiding the duplicate-line confusion with the Close line.
-    let preMarketPrice: number | null = null;
-    if (session === "pre" && snap.latestTrade?.p != null && snap.latestTrade?.t) {
-      const pm = getPreMarketWindow();
-      const tradeTs = new Date(snap.latestTrade.t).getTime();
-      const pmStartTs = new Date(pm.start).getTime();
-      if (tradeTs >= pmStartTs) {
-        preMarketPrice = snap.latestTrade.p;
-      }
-    }
+    // Always expose the latest trade price as preMarketPrice during the pre session.
+    // Overlap with the Close reference line is handled on the frontend (the Close line
+    // is suppressed when it equals the ext price, keeping just one yellow PRE line).
+    const preMarketPrice: number | null = session === "pre" ? price : null;
 
     const lastRegularClose: number | null =
       session === "pre"

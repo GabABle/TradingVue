@@ -203,21 +203,26 @@ export default function TradingTerminal() {
   const _session      = (quoteData as any)?.session      as string | undefined;
   const _prevClose    = (quoteData as any)?.prevClose    as number | null | undefined;
   const _regularClose = (quoteData as any)?.regularClose as number | null | undefined;
-  const referencePrice: number | null =
-    _session === "pre"   ? (_prevClose    ?? null) :
-    _session === "after" ? (_regularClose ?? null) :
-    null;
   const _extSession = (_session === "pre" || _session === "after") ? _session : null;
-  // For PRE: only use preMarketPrice (set by backend only when latestTrade.t falls
-  // within today's pre-market window). Avoids drawing a yellow PRE line at yesterday's
-  // close when no real pre-market trade has occurred yet.
-  // For AH: price (latestTrade.p) is always the current after-hours trade.
   const _extPrice: number | null =
     _extSession === "pre"
       ? ((quoteData as any)?.preMarketPrice ?? null)
       : _extSession === "after"
         ? ((quoteData as any)?.price ?? null)
         : null;
+
+  // Suppress the grey "Close" reference line when it would sit at exactly the same
+  // price as the yellow ext line — keeps the chart clean when the ext price hasn't
+  // diverged from yesterday's close (only one line is needed, and the yellow PRE wins).
+  const _rawReferencePrice: number | null =
+    _session === "pre"   ? (_prevClose    ?? null) :
+    _session === "after" ? (_regularClose ?? null) :
+    null;
+  const referencePrice: number | null =
+    _rawReferencePrice != null && _extPrice != null &&
+    Math.abs(_rawReferencePrice - _extPrice) < 0.005
+      ? null
+      : _rawReferencePrice;
 
   // ── Keyboard shortcut: any letter opens search ────────────────────────────
   useEffect(() => {
