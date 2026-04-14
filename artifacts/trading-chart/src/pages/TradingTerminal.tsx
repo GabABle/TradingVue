@@ -196,7 +196,7 @@ export default function TradingTerminal() {
     { query: { gcTime: 0, refetchOnWindowFocus: "always" } as any, request: { cache: "no-store" } },
   );
 
-  const { data: quoteData } = useGetQuote({ symbol });
+  const { data: quoteData } = useGetQuote({ symbol }, { query: { refetchInterval: 15_000 } });
 
   // ── Live streaming: assemble the forming current candle from trade ticks ──
   const liveBar = useLiveBar(symbol, interval, token);

@@ -231,8 +231,8 @@ export function ChartWidget({
       extPriceLineRef.current = null;
     }
     if (extPrice == null) return;
-    const color = '#f59e0b';
-    const title = extSession === "after" ? 'AH' : 'PRE';
+    const color = extSession === 'after' ? '#818cf8' : '#f59e0b';
+    const title = extSession === 'after' ? 'AH' : 'PRE';
     safe(() => {
       extPriceLineRef.current = series.createPriceLine({
         price: extPrice,

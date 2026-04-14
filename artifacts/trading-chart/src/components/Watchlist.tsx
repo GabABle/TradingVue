@@ -516,11 +516,14 @@ export function Watchlist({ sections: propSections, onSectionsChange, activeSymb
         </div>
       </div>
 
-      {/* Column headers */}
+      {/* Column headers — structure mirrors SymbolRow exactly so columns stay aligned
+          at any watchlist width: same mx-1 px-1.5 gap-1 container, same spacers for
+          the grip handle (left) and the bell + remove buttons (right). */}
       {hasAny && (
-        <div className="flex items-center px-3 pt-1.5 pb-0.5 border-b border-[#2a2e39]/50 shrink-0">
-          <div className="w-5 shrink-0" />
-          <div className="flex-1 text-[9px] font-semibold text-[#4c525e] tracking-widest uppercase">Symbol</div>
+        <div className="flex items-center gap-1 px-1.5 mx-1 pt-1.5 pb-0.5 border-b border-[#2a2e39]/50 shrink-0">
+          {/* grip spacer — matches drag handle: p-0.5 -ml-0.5 w-3 */}
+          <div className="shrink-0 w-3 p-0.5 -ml-0.5" />
+          <div className="flex-1 min-w-0 text-[9px] font-semibold text-[#4c525e] tracking-widest uppercase">Symbol</div>
           <button
             onClick={toggleSort}
             title={sortDir === null ? "Sort by % change (high→low)" : sortDir === "desc" ? "Sort by % change (low→high)" : "Clear sort"}
@@ -533,6 +536,10 @@ export function Watchlist({ sections: propSections, onSectionsChange, activeSymb
           </button>
           <div className="w-[46px] shrink-0 text-right text-[9px] font-semibold text-[#4c525e] tracking-widest uppercase">Close</div>
           <div className="w-[40px] shrink-0 text-right text-[9px] font-semibold text-[#f59e0b]/70 tracking-widest uppercase">Ext</div>
+          {/* bell spacer — matches bell button: shrink-0 p-0.5 w-3 */}
+          <div className="shrink-0 w-3 p-0.5" />
+          {/* remove spacer — matches X button: shrink-0 p-0.5 w-3 */}
+          <div className="shrink-0 w-3 p-0.5" />
         </div>
       )}
 
