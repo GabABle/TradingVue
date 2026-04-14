@@ -208,13 +208,11 @@ export default function TradingTerminal() {
     _session === "after" ? (_regularClose ?? null) :
     null;
   const _extSession = (_session === "pre" || _session === "after") ? _session : null;
-  const _preMarketPrice = (quoteData as any)?.preMarketPrice as number | null | undefined;
+  // During pre/after-market: latestTrade.p (= `price`) is the current ext price.
+  // The Watchlist uses the same field. preMarketPrice from the bars endpoint was
+  // unreliable (Alpaca 403s the SIP feed for recent timestamps).
   const _extPrice: number | null =
-    _extSession === "pre"
-      ? (_preMarketPrice ?? null)
-      : _extSession === "after"
-        ? ((quoteData as any)?.price ?? null)
-        : null;
+    _extSession != null ? ((quoteData as any)?.price ?? null) : null;
 
   // ── Keyboard shortcut: any letter opens search ────────────────────────────
   useEffect(() => {

@@ -277,13 +277,8 @@ router.get("/market/quote", async (req, res) => {
     // ── Equity ───────────────────────────────────────────────────────────────
     const session  = getMarketSession();
     const snapUrl  = `${DATA_BASE_URL}/stocks/${upperSymbol}/snapshot`;
-    const pm       = getPreMarketWindow();
-    const pmUrl    = `${DATA_BASE_URL}/stocks/${upperSymbol}/bars?timeframe=1Min&start=${encodeURIComponent(pm.start)}&end=${encodeURIComponent(pm.end)}&feed=sip&sort=desc&limit=1&adjustment=raw`;
 
-    const [snapResponse, pmResponse] = await Promise.all([
-      fetch(snapUrl, { headers: alpacaHeaders() }),
-      fetch(pmUrl,  { headers: alpacaHeaders() }),
-    ]);
+    const snapResponse = await fetch(snapUrl, { headers: alpacaHeaders() });
 
     if (!snapResponse.ok) {
       res.status(snapResponse.status).json({ error: "Not Found", message: `No quote found for ${upperSymbol}` });
@@ -292,14 +287,12 @@ router.get("/market/quote", async (req, res) => {
 
     const snap = await snapResponse.json() as any;
 
-    let preMarketPrice: number | null = null;
-    if (pmResponse.ok) {
-      const pmData  = await pmResponse.json() as any;
-      const pmBars: any[] = pmData.bars ?? [];
-      if (pmBars.length > 0) preMarketPrice = pmBars[0].c;
-    }
-
+    // latestTrade.p is the most recent trade price — during pre-market this IS
+    // the pre-market price. We no longer fetch the pre-market bars endpoint
+    // separately because Alpaca 403s any bars request with a recent `end` param
+    // on the SIP feed (15-min delay restriction).
     const price = snap.latestTrade?.p ?? snap.dailyBar?.c ?? 0;
+    const preMarketPrice: number | null = session === "pre" ? price : null;
 
     const lastRegularClose: number | null =
       session === "pre"
