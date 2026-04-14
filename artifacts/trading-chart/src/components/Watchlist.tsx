@@ -138,7 +138,7 @@ function SymbolRow({
           </span>
         </div>
 
-        <div className="w-[46px] shrink-0 text-right">
+        <div className="w-[46px] shrink-0 text-center">
           {quote ? (
             <span className={`text-[11px] font-semibold font-mono ${isUp ? "text-[#26a69a]" : "text-[#ef5350]"}`}>
               {isUp ? "+" : ""}{quote.changePercent.toFixed(2)}%
@@ -148,17 +148,17 @@ function SymbolRow({
           )}
         </div>
 
-        <div className="w-[46px] shrink-0 text-right">
+        <div className="w-[46px] shrink-0 text-center">
           {quote ? (
             <span className="text-[11px] font-mono font-bold text-[#d1d4dc]">
               {fmt(closePrice)}
             </span>
           ) : (
-            <div className="ml-auto w-9 h-3 bg-[#2a2e39] rounded animate-pulse" />
+            <div className="mx-auto w-9 h-3 bg-[#2a2e39] rounded animate-pulse" />
           )}
         </div>
 
-        <div className="w-[40px] shrink-0 text-right">
+        <div className="w-[40px] shrink-0 text-center">
           {extPrice != null ? (
             <span className={`text-[11px] font-mono font-semibold ${session === "pre" ? "text-[#f59e0b]" : "text-[#818cf8]"}`}>
               {fmt(extPrice)}
@@ -527,15 +527,15 @@ export function Watchlist({ sections: propSections, onSectionsChange, activeSymb
           <button
             onClick={toggleSort}
             title={sortDir === null ? "Sort by % change (high→low)" : sortDir === "desc" ? "Sort by % change (low→high)" : "Clear sort"}
-            className={`w-[46px] shrink-0 flex items-center justify-end gap-0.5 text-[9px] font-semibold tracking-widest uppercase transition-colors hover:text-[#d1d4dc] ${sortDir !== null ? "text-[#2962ff]" : "text-[#4c525e]"}`}
+            className={`w-[46px] shrink-0 flex items-center justify-center gap-0.5 text-[9px] font-semibold tracking-widest uppercase transition-colors hover:text-[#d1d4dc] ${sortDir !== null ? "text-[#2962ff]" : "text-[#4c525e]"}`}
           >
             %
             <span className="text-[8px] leading-none">
               {sortDir === "desc" ? "▼" : sortDir === "asc" ? "▲" : ""}
             </span>
           </button>
-          <div className="w-[46px] shrink-0 text-right text-[9px] font-semibold text-[#4c525e] tracking-widest uppercase">Close</div>
-          <div className="w-[40px] shrink-0 text-right text-[9px] font-semibold text-[#f59e0b]/70 tracking-widest uppercase">Ext</div>
+          <div className="w-[46px] shrink-0 text-center text-[9px] font-semibold text-[#4c525e] tracking-widest uppercase">Close</div>
+          <div className="w-[40px] shrink-0 text-center text-[9px] font-semibold text-[#f59e0b]/70 tracking-widest uppercase">Ext</div>
           {/* bell spacer — matches bell button: shrink-0 p-0.5 w-3 */}
           <div className="shrink-0 w-3 p-0.5" />
           {/* remove spacer — matches X button: shrink-0 p-0.5 w-3 */}
