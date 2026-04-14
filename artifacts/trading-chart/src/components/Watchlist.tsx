@@ -106,14 +106,7 @@ function SymbolRow({
       : session === "after"
         ? (quote?.price ?? null)
         : null;
-  // Only show EXT when it has actually diverged from the close column value.
-  // If closePrice is unavailable we show it anyway (can't compare).
-  // If they're the same the stock hasn't moved; showing duplicate numbers is confusing.
-  const extPrice: number | null =
-    rawExtPrice != null &&
-    (closePrice == null || Math.abs(rawExtPrice - closePrice) >= 0.005)
-      ? rawExtPrice
-      : null;
+  const extPrice: number | null = rawExtPrice ?? null;
 
   return (
     <div
