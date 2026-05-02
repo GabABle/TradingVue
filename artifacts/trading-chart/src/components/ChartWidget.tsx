@@ -254,6 +254,13 @@ export function ChartWidget({
           width: chartContainerRef.current!.clientWidth,
           height: chartContainerRef.current!.clientHeight,
         }), 'resize');
+        // Keep RSI chart's right price-scale at least as wide as main's so the
+        // two time-axes are pixel-aligned (crosshair vertical lines overlap).
+        const rc = rsiChartRef.current;
+        if (rc) safe(() => {
+          const w = chart.priceScale('right').width();
+          if (w > 0) rc.applyOptions({ rightPriceScale: { minimumWidth: w } });
+        }, 'scale-sync-resize');
       });
     });
     ro.observe(el);
@@ -519,6 +526,19 @@ export function ChartWidget({
     });
 
     safe(() => chart.timeScale().fitContent(), 'fitContent');
+
+    // Sync right price-scale width: RSI labels ("65.3") are narrower than main
+    // chart labels ("$175.50"), shifting the plot area right and misaligning the
+    // vertical crosshair. Force RSI's scale to be at least as wide as main's.
+    if (showRSI) {
+      requestAnimationFrame(() => {
+        const mc = mainChartRef.current, rc = rsiChartRef.current;
+        if (mc && rc) safe(() => {
+          const w = mc.priceScale('right').width();
+          if (w > 0) rc.applyOptions({ rightPriceScale: { minimumWidth: w } });
+        }, 'scale-sync-data');
+      });
+    }
   }, [data, isDaily, showRSI, smaPeriod, emaPeriod]);
 
   // ── Layout heights ──────────────────────────────────────────────────────────
