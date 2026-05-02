@@ -315,7 +315,7 @@ export default function TradingTerminal() {
           {!error && barsData && barsData.bars.length > 0 && (
             <div className="relative flex-1 w-full h-full rounded-xl overflow-hidden shadow-2xl animate-in fade-in duration-300">
               <ChartWidget
-                key={`${symbol}|${interval}|${selectedRange}`}
+                key={`${symbol}|${interval}|${selectedRange}|${timezone}`}
                 data={barsData.bars}
                 timeframe={interval}
                 timezone={timezone}

@@ -181,20 +181,10 @@ export function ChartWidget({
   const rsiOffsetRef   = useRef(14);
   const stochOffsetRef = useRef(15);
 
-  // Keep a ref to the current timezone so RSI/Stoch effects can read it at mount time
+  // Keep a ref to the current timezone so RSI/Stoch effects can read it at mount time.
+  // (ChartWidget remounts when timezone changes — see key in TradingTerminal —
+  //  so this ref always holds the correct value at createChart time.)
   const timezoneRef = useRef(timezone);
-  useEffect(() => { timezoneRef.current = timezone; }, [timezone]);
-
-  // ── Apply timezone formatters whenever timezone changes ──────────────────
-  useEffect(() => {
-    const opts = {
-      localization: { timeFormatter: makeTimeFormatter(timezone) },
-      timeScale:    { tickMarkFormatter: makeTickMarkFormatter(timezone) },
-    };
-    [mainChartRef, rsiChartRef, stochChartRef].forEach(ref => {
-      if (ref.current) safe(() => ref.current!.applyOptions(opts as any), 'tz-fmt');
-    });
-  }, [timezone]);
 
   // ── Main chart: init once ────────────────────────────────────────────────
   useEffect(() => {
@@ -210,6 +200,11 @@ export function ChartWidget({
         ...BASE_CHART_OPTIONS,
         width: el.clientWidth || 600,
         height: el.clientHeight || 400,
+        timeScale: {
+          ...BASE_CHART_OPTIONS.timeScale,
+          tickMarkFormatter: makeTickMarkFormatter(timezoneRef.current),
+        },
+        localization: { timeFormatter: makeTimeFormatter(timezoneRef.current) } as any,
       });
 
       candle = chart.addSeries(CandlestickSeries, {
@@ -345,7 +340,12 @@ export function ChartWidget({
       ...BASE_CHART_OPTIONS,
       width: el.clientWidth,
       height: el.clientHeight,
-      timeScale: { ...BASE_CHART_OPTIONS.timeScale, visible: false },
+      timeScale: {
+        ...BASE_CHART_OPTIONS.timeScale,
+        visible: false,
+        tickMarkFormatter: makeTickMarkFormatter(timezoneRef.current),
+      },
+      localization: { timeFormatter: makeTimeFormatter(timezoneRef.current) } as any,
     });
     const rsiLine = rsiChart.addSeries(LineSeries, { color: '#b22833', lineWidth: 2, priceLineVisible: false });
     safe(() => {
@@ -452,7 +452,12 @@ export function ChartWidget({
       ...BASE_CHART_OPTIONS,
       width: el.clientWidth,
       height: el.clientHeight,
-      timeScale: { ...BASE_CHART_OPTIONS.timeScale, visible: false },
+      timeScale: {
+        ...BASE_CHART_OPTIONS.timeScale,
+        visible: false,
+        tickMarkFormatter: makeTickMarkFormatter(timezoneRef.current),
+      },
+      localization: { timeFormatter: makeTimeFormatter(timezoneRef.current) } as any,
     });
     const kLine = stochChart.addSeries(LineSeries, { color: '#26c6da', lineWidth: 2, priceLineVisible: false, title: '%K' });
     const dLine = stochChart.addSeries(LineSeries, { color: '#ff9800', lineWidth: 1, priceLineVisible: false, title: '%D', lineStyle: 2 });
