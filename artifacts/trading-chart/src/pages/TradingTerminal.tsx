@@ -187,6 +187,20 @@ export default function TradingTerminal() {
     }
   }, []));
 
+  // ── Browser tab title: "AAPL $175.50 — TradingVue" ───────────────────────
+  useEffect(() => {
+    const price = (quoteData as any)?.price as number | undefined;
+    if (price != null) {
+      const formatted = price < 1
+        ? `$${price.toFixed(4)}`
+        : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(price);
+      document.title = `${symbol} ${formatted} — TradingVue`;
+    } else {
+      document.title = `${symbol} — TradingVue`;
+    }
+    return () => { document.title = 'TradingVue'; };
+  }, [symbol, quoteData]);
+
   // ── Range / interval helpers ──────────────────────────────────────────────
   const handleRangeChange = useCallback((newRange: RangeKey) => {
     setSelectedRange(newRange);
