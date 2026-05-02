@@ -6,6 +6,7 @@ import {
   CandlestickSeries,
   HistogramSeries,
   LineSeries,
+  TickMarkType,
   type IChartApi,
   type ISeriesApi,
   type Time,
@@ -23,6 +24,7 @@ export interface LiveBar {
 interface ChartWidgetProps {
   data: Bar[];
   timeframe: string;
+  timezone: string;
   showRSI: boolean;
   showStoch: boolean;
   smaPeriod: number | null;
@@ -75,6 +77,44 @@ function sanitizeBars(bars: Bar[], isDaily: boolean): Bar[] {
   });
 }
 
+// ─── Timezone formatters ─────────────────────────────────────────────────────
+
+function makeTickMarkFormatter(tz: string) {
+  return (time: Time, tickMarkType: TickMarkType, _locale: string): string | null => {
+    if (typeof time === 'string') {
+      const [y, m, d] = (time as string).split('-').map(Number);
+      const utc = new Date(Date.UTC(y, m - 1, d));
+      if (tickMarkType === TickMarkType.Year)       return String(y);
+      if (tickMarkType === TickMarkType.Month)      return utc.toLocaleDateString('en-US', { month: 'short' });
+      return utc.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+    const date = new Date((time as number) * 1000);
+    switch (tickMarkType) {
+      case TickMarkType.Year:
+        return new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric' }).format(date);
+      case TickMarkType.Month:
+        return new Intl.DateTimeFormat('en-US', { timeZone: tz, month: 'short', year: 'numeric' }).format(date);
+      case TickMarkType.DayOfMonth:
+        return new Intl.DateTimeFormat('en-US', { timeZone: tz, month: 'short', day: 'numeric' }).format(date);
+      case TickMarkType.Time:
+        return new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false }).format(date);
+      default:
+        return new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(date);
+    }
+  };
+}
+
+function makeTimeFormatter(tz: string) {
+  return (time: Time): string => {
+    if (typeof time === 'string') return time as string;
+    const date = new Date((time as number) * 1000);
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, year: 'numeric', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    }).format(date);
+  };
+}
+
 // ─── Chart constants ──────────────────────────────────────────────────────────
 
 const CHART_BG = '#131722';
@@ -99,7 +139,7 @@ const BASE_CHART_OPTIONS = {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function ChartWidget({
-  data, timeframe, showRSI, showStoch, smaPeriod, emaPeriod, referencePrice, extPrice, extSession, liveBar,
+  data, timeframe, timezone, showRSI, showStoch, smaPeriod, emaPeriod, referencePrice, extPrice, extSession, liveBar,
 }: ChartWidgetProps) {
   // Daily/weekly bars use BusinessDay ('YYYY-MM-DD') strings — timezone-independent.
   // Intraday bars use UTCTimestamp (Unix epoch seconds) — renders in browser local time.
@@ -140,6 +180,21 @@ export function ChartWidget({
   // same visual x-position across all panels (and the crosshair vertical lines align).
   const rsiOffsetRef   = useRef(14);
   const stochOffsetRef = useRef(15);
+
+  // Keep a ref to the current timezone so RSI/Stoch effects can read it at mount time
+  const timezoneRef = useRef(timezone);
+  useEffect(() => { timezoneRef.current = timezone; }, [timezone]);
+
+  // ── Apply timezone formatters whenever timezone changes ──────────────────
+  useEffect(() => {
+    const opts = {
+      localization: { timeFormatter: makeTimeFormatter(timezone) },
+      timeScale:    { tickMarkFormatter: makeTickMarkFormatter(timezone) },
+    };
+    [mainChartRef, rsiChartRef, stochChartRef].forEach(ref => {
+      if (ref.current) safe(() => ref.current!.applyOptions(opts as any), 'tz-fmt');
+    });
+  }, [timezone]);
 
   // ── Main chart: init once ────────────────────────────────────────────────
   useEffect(() => {

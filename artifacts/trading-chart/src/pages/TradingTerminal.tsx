@@ -44,15 +44,18 @@ interface PersistedState {
   showStoch: boolean;
   smaPeriod: number | null;
   emaPeriod: number | null;
+  timezone: string;
 }
 
 const VALID_RANGES    = Object.keys(RANGE_CONFIG) as RangeKey[];
 const VALID_INTERVALS = Object.keys(INTERVAL_LABELS) as IntervalKey[];
+const BROWSER_TZ      = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 function loadState(): PersistedState {
   const defaults: PersistedState = {
     symbol: "AAPL", selectedRange: "1Y", interval: "1Day",
     showRSI: false, showStoch: false, smaPeriod: null, emaPeriod: null,
+    timezone: BROWSER_TZ,
   };
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -66,6 +69,7 @@ function loadState(): PersistedState {
       showStoch:     typeof p.showStoch === "boolean"  ? p.showStoch : defaults.showStoch,
       smaPeriod:     typeof p.smaPeriod === "number"   || p.smaPeriod === null ? p.smaPeriod ?? null : defaults.smaPeriod,
       emaPeriod:     typeof p.emaPeriod === "number"   || p.emaPeriod === null ? p.emaPeriod ?? null : defaults.emaPeriod,
+      timezone:      typeof p.timezone === "string" && p.timezone.length > 0 ? p.timezone : defaults.timezone,
     };
   } catch { return defaults; }
 }
@@ -81,6 +85,7 @@ export default function TradingTerminal() {
   const [showStoch, setShowStoch]         = useState(saved.showStoch);
   const [smaPeriod, setSmaPeriod]         = useState<number | null>(saved.smaPeriod);
   const [emaPeriod, setEmaPeriod]         = useState<number | null>(saved.emaPeriod);
+  const [timezone, setTimezone]           = useState<string>(saved.timezone);
   // Sections are the source of truth for the watchlist (loaded from localStorage immediately,
   // then superseded by DB data once fetched).
   const [sections, setSections]           = useState<WatchlistSection[]>(() => loadSections(DEFAULT_WATCHLIST));
@@ -98,10 +103,10 @@ export default function TradingTerminal() {
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        symbol, selectedRange, interval, showRSI, showStoch, smaPeriod, emaPeriod,
+        symbol, selectedRange, interval, showRSI, showStoch, smaPeriod, emaPeriod, timezone,
       }));
     } catch { /* ignore */ }
-  }, [symbol, selectedRange, interval, showRSI, showStoch, smaPeriod, emaPeriod]);
+  }, [symbol, selectedRange, interval, showRSI, showStoch, smaPeriod, emaPeriod, timezone]);
 
   // ── Load sections from DB on mount (supersedes localStorage) ──────────────
   const dbLoaded = useRef(false);
@@ -266,6 +271,8 @@ export default function TradingTerminal() {
         emaPeriod={emaPeriod} setEmaPeriod={setEmaPeriod}
         onSearchOpen={openSearch}
         onTradeOpen={() => setTradeOpen(true)}
+        timezone={timezone}
+        onTimezoneChange={setTimezone}
       />
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -311,6 +318,7 @@ export default function TradingTerminal() {
                 key={`${symbol}|${interval}|${selectedRange}`}
                 data={barsData.bars}
                 timeframe={interval}
+                timezone={timezone}
                 showRSI={showRSI}
                 showStoch={showStoch}
                 smaPeriod={smaPeriod}

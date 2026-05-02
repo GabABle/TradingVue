@@ -1,4 +1,4 @@
-import { Activity, TrendingUp, Settings2, Search, BarChart2, ArrowLeftRight } from "lucide-react";
+import { Activity, TrendingUp, Settings2, Search, BarChart2, ArrowLeftRight, Globe } from "lucide-react";
 import { UserMenu } from "@/components/UserMenu";
 import { useGetQuote } from "@workspace/api-client-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -11,6 +11,22 @@ import {
 } from "@/lib/ranges";
 
 type MarketSession = "pre" | "regular" | "after" | "closed";
+
+const TIMEZONES = [
+  { label: 'UTC',          tz: 'UTC',                  offset: 'UTC+0' },
+  { label: 'London',       tz: 'Europe/London',         offset: 'UTC+0/+1' },
+  { label: 'Frankfurt',    tz: 'Europe/Berlin',         offset: 'UTC+1/+2' },
+  { label: 'New York',     tz: 'America/New_York',      offset: 'UTC-5/-4' },
+  { label: 'Chicago',      tz: 'America/Chicago',       offset: 'UTC-6/-5' },
+  { label: 'Los Angeles',  tz: 'America/Los_Angeles',   offset: 'UTC-8/-7' },
+  { label: 'São Paulo',    tz: 'America/Sao_Paulo',     offset: 'UTC-3/-2' },
+  { label: 'Dubai',        tz: 'Asia/Dubai',            offset: 'UTC+4' },
+  { label: 'Mumbai',       tz: 'Asia/Kolkata',          offset: 'UTC+5:30' },
+  { label: 'Singapore',    tz: 'Asia/Singapore',        offset: 'UTC+8' },
+  { label: 'Hong Kong',    tz: 'Asia/Hong_Kong',        offset: 'UTC+8' },
+  { label: 'Tokyo',        tz: 'Asia/Tokyo',            offset: 'UTC+9' },
+  { label: 'Sydney',       tz: 'Australia/Sydney',      offset: 'UTC+10/+11' },
+];
 
 function SessionBadge({ session }: { session?: MarketSession }) {
   if (!session || session === "regular") return null;
@@ -42,6 +58,8 @@ interface TopToolbarProps {
   setEmaPeriod: (p: number | null) => void;
   onSearchOpen: (initial?: string) => void;
   onTradeOpen: () => void;
+  timezone: string;
+  onTimezoneChange: (tz: string) => void;
 }
 
 export function TopToolbar({
@@ -60,6 +78,8 @@ export function TopToolbar({
   setEmaPeriod,
   onSearchOpen,
   onTradeOpen,
+  timezone,
+  onTimezoneChange,
 }: TopToolbarProps) {
   const { data: quote } = useGetQuote(
     { symbol },
@@ -240,6 +260,40 @@ export function TopToolbar({
                 </select>
               </div>
             </div>
+          </PopoverContent>
+        </Popover>
+
+        <div className="w-px h-5 bg-[#2a2e39]" />
+
+        {/* Timezone picker */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-md border border-[#2a2e39] bg-transparent text-[#787b86] hover:text-[#d1d4dc] hover:border-[#787b86] transition-all duration-150"
+              title="Change chart timezone"
+            >
+              <Globe className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">
+                {TIMEZONES.find(t => t.tz === timezone)?.label ?? 'TZ'}
+              </span>
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-56 p-2 bg-[#1e222d] border-[#2a2e39] shadow-xl" align="end">
+            <p className="text-[10px] font-semibold text-[#4a4f5e] uppercase tracking-widest px-2 py-1 mb-1">Chart Timezone</p>
+            {TIMEZONES.map(({ label, tz, offset }) => (
+              <button
+                key={tz}
+                onClick={() => onTimezoneChange(tz)}
+                className={`w-full flex items-center justify-between px-2 py-1.5 rounded text-xs transition-colors ${
+                  timezone === tz
+                    ? 'bg-[#2962ff]/20 text-[#2962ff]'
+                    : 'text-[#787b86] hover:text-[#d1d4dc] hover:bg-[#2a2e39]'
+                }`}
+              >
+                <span>{label}</span>
+                <span className={`text-[10px] ${timezone === tz ? 'text-[#2962ff]/70' : 'text-[#4a4f5e]'}`}>{offset}</span>
+              </button>
+            ))}
           </PopoverContent>
         </Popover>
 
