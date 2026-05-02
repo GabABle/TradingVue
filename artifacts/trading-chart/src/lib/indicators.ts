@@ -118,7 +118,10 @@ export function calculateDPO(data: Bar[], period: number = 14): IndicatorPoint[]
   const result: IndicatorPoint[] = [];
   const shift = Math.floor(period / 2) + 1;
 
-  for (let i = period - 1; i < data.length; i++) {
+  // Start at i = period (same bar as RSI) so both series on the RSI sub-chart
+  // have the same earliest timestamp — keeping the chart's logical offset at 14
+  // and preventing the crosshair from appearing 1 bar off between panels.
+  for (let i = period; i < data.length; i++) {
     const pastIndex = i - shift;
     if (pastIndex < 0) continue;
 
