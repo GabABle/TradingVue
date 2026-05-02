@@ -41,7 +41,7 @@ interface PersistedState {
   selectedRange: RangeKey;
   interval: IntervalKey;
   showRSI: boolean;
-  showStoch: boolean;
+  showDPO: boolean;
   smaPeriod: number | null;
   emaPeriod: number | null;
   timezone: string;
@@ -54,21 +54,21 @@ const BROWSER_TZ      = Intl.DateTimeFormat().resolvedOptions().timeZone;
 function loadState(): PersistedState {
   const defaults: PersistedState = {
     symbol: "AAPL", selectedRange: "1Y", interval: "1Day",
-    showRSI: false, showStoch: false, smaPeriod: null, emaPeriod: null,
+    showRSI: false, showDPO: false, smaPeriod: null, emaPeriod: null,
     timezone: BROWSER_TZ,
   };
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return defaults;
-    const p = JSON.parse(raw) as Partial<PersistedState>;
+    const p = JSON.parse(raw) as Partial<PersistedState> & { showStoch?: boolean };
     return {
       symbol:        typeof p.symbol === "string" && p.symbol.length > 0 ? p.symbol : defaults.symbol,
       selectedRange: VALID_RANGES.includes(p.selectedRange as RangeKey) ? p.selectedRange as RangeKey : defaults.selectedRange,
       interval:      VALID_INTERVALS.includes(p.interval as IntervalKey) ? p.interval as IntervalKey : defaults.interval,
-      showRSI:       typeof p.showRSI === "boolean"   ? p.showRSI   : defaults.showRSI,
-      showStoch:     typeof p.showStoch === "boolean"  ? p.showStoch : defaults.showStoch,
-      smaPeriod:     typeof p.smaPeriod === "number"   || p.smaPeriod === null ? p.smaPeriod ?? null : defaults.smaPeriod,
-      emaPeriod:     typeof p.emaPeriod === "number"   || p.emaPeriod === null ? p.emaPeriod ?? null : defaults.emaPeriod,
+      showRSI:       typeof p.showRSI === "boolean"  ? p.showRSI  : defaults.showRSI,
+      showDPO:       typeof p.showDPO === "boolean"  ? p.showDPO  : (typeof p.showStoch === "boolean" ? p.showStoch : defaults.showDPO),
+      smaPeriod:     typeof p.smaPeriod === "number"  || p.smaPeriod === null ? p.smaPeriod ?? null : defaults.smaPeriod,
+      emaPeriod:     typeof p.emaPeriod === "number"  || p.emaPeriod === null ? p.emaPeriod ?? null : defaults.emaPeriod,
       timezone:      typeof p.timezone === "string" && p.timezone.length > 0 ? p.timezone : defaults.timezone,
     };
   } catch { return defaults; }
@@ -82,7 +82,7 @@ export default function TradingTerminal() {
   const [selectedRange, setSelectedRange] = useState<RangeKey>(saved.selectedRange);
   const [interval, setInterval]           = useState<IntervalKey>(saved.interval);
   const [showRSI, setShowRSI]             = useState(saved.showRSI);
-  const [showStoch, setShowStoch]         = useState(saved.showStoch);
+  const [showDPO, setShowDPO]             = useState(saved.showDPO);
   const [smaPeriod, setSmaPeriod]         = useState<number | null>(saved.smaPeriod);
   const [emaPeriod, setEmaPeriod]         = useState<number | null>(saved.emaPeriod);
   const [timezone, setTimezone]           = useState<string>(saved.timezone);
@@ -103,10 +103,10 @@ export default function TradingTerminal() {
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        symbol, selectedRange, interval, showRSI, showStoch, smaPeriod, emaPeriod, timezone,
+        symbol, selectedRange, interval, showRSI, showDPO, smaPeriod, emaPeriod, timezone,
       }));
     } catch { /* ignore */ }
-  }, [symbol, selectedRange, interval, showRSI, showStoch, smaPeriod, emaPeriod, timezone]);
+  }, [symbol, selectedRange, interval, showRSI, showDPO, smaPeriod, emaPeriod, timezone]);
 
   // ── Load sections from DB on mount (supersedes localStorage) ──────────────
   const dbLoaded = useRef(false);
@@ -266,7 +266,7 @@ export default function TradingTerminal() {
         onRangeChange={handleRangeChange}
         onIntervalChange={handleIntervalChange}
         showRSI={showRSI} setShowRSI={setShowRSI}
-        showStoch={showStoch} setShowStoch={setShowStoch}
+        showDPO={showDPO} setShowDPO={setShowDPO}
         smaPeriod={smaPeriod} setSmaPeriod={setSmaPeriod}
         emaPeriod={emaPeriod} setEmaPeriod={setEmaPeriod}
         onSearchOpen={openSearch}
@@ -320,7 +320,7 @@ export default function TradingTerminal() {
                 timeframe={interval}
                 timezone={timezone}
                 showRSI={showRSI}
-                showStoch={showStoch}
+                showDPO={showDPO}
                 smaPeriod={smaPeriod}
                 emaPeriod={emaPeriod}
                 referencePrice={referencePrice}
@@ -358,7 +358,7 @@ export default function TradingTerminal() {
           onSelect={setSymbol}
           onSearchOpen={openSearch}
           onAlertOpen={handleAlertOpen}
-          chatContext={{ symbol, range: selectedRange, interval, showRSI, showStoch, smaPeriod, emaPeriod }}
+          chatContext={{ symbol, range: selectedRange, interval, showRSI, showDPO, smaPeriod, emaPeriod }}
         />
       </div>
 

@@ -50,8 +50,8 @@ interface TopToolbarProps {
   onIntervalChange: (i: IntervalKey) => void;
   showRSI: boolean;
   setShowRSI: (s: boolean) => void;
-  showStoch: boolean;
-  setShowStoch: (s: boolean) => void;
+  showDPO: boolean;
+  setShowDPO: (s: boolean) => void;
   smaPeriod: number | null;
   setSmaPeriod: (p: number | null) => void;
   emaPeriod: number | null;
@@ -70,8 +70,8 @@ export function TopToolbar({
   onIntervalChange,
   showRSI,
   setShowRSI,
-  showStoch,
-  setShowStoch,
+  showDPO,
+  setShowDPO,
   smaPeriod,
   setSmaPeriod,
   emaPeriod,
@@ -197,17 +197,17 @@ export function TopToolbar({
           RSI
         </button>
 
-        {/* Stochastic toggle */}
+        {/* DPO toggle */}
         <button
-          onClick={() => setShowStoch(!showStoch)}
+          onClick={() => setShowDPO(!showDPO)}
           className={`flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-md border transition-all duration-150 ${
-            showStoch
-              ? "bg-[#26c6da]/10 border-[#26c6da]/50 text-[#26c6da]"
+            showDPO
+              ? "bg-[#e040fb]/10 border-[#e040fb]/50 text-[#e040fb]"
               : "bg-transparent border-[#2a2e39] text-[#787b86] hover:text-[#d1d4dc] hover:border-[#787b86]"
           }`}
         >
           <BarChart2 className="w-3.5 h-3.5" />
-          Stoch
+          DPO
         </button>
 
         {/* Moving Averages */}

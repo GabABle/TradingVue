@@ -12,7 +12,7 @@ import {
   type Time,
 } from 'lightweight-charts';
 import type { Bar } from "@workspace/api-client-react";
-import { calculateSMA, calculateEMA, calculateRSI, calculateStochastic } from '@/lib/indicators';
+import { calculateSMA, calculateEMA, calculateRSI, calculateDPO } from '@/lib/indicators';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -26,7 +26,7 @@ interface ChartWidgetProps {
   timeframe: string;
   timezone: string;
   showRSI: boolean;
-  showStoch: boolean;
+  showDPO: boolean;
   smaPeriod: number | null;
   emaPeriod: number | null;
   referencePrice?: number | null;
@@ -139,49 +139,49 @@ const BASE_CHART_OPTIONS = {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function ChartWidget({
-  data, timeframe, timezone, showRSI, showStoch, smaPeriod, emaPeriod, referencePrice, extPrice, extSession, liveBar,
+  data, timeframe, timezone, showRSI, showDPO, smaPeriod, emaPeriod, referencePrice, extPrice, extSession, liveBar,
 }: ChartWidgetProps) {
   // Daily/weekly bars use BusinessDay ('YYYY-MM-DD') strings — timezone-independent.
   // Intraday bars use UTCTimestamp (Unix epoch seconds) — renders in browser local time.
   const isDaily = timeframe === '1Day' || timeframe === '1Week';
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const rsiContainerRef   = useRef<HTMLDivElement>(null);
-  const stochContainerRef = useRef<HTMLDivElement>(null);
 
-  const mainChartRef  = useRef<IChartApi | null>(null);
-  const rsiChartRef   = useRef<IChartApi | null>(null);
-  const stochChartRef = useRef<IChartApi | null>(null);
+  const mainChartRef = useRef<IChartApi | null>(null);
+  const rsiChartRef  = useRef<IChartApi | null>(null);
 
-  const candleRef   = useRef<ISeriesApi<'Candlestick'> | null>(null);
-  const volumeRef   = useRef<ISeriesApi<'Histogram'> | null>(null);
-  const smaRef      = useRef<ISeriesApi<'Line'> | null>(null);
-  const emaRef      = useRef<ISeriesApi<'Line'> | null>(null);
-  const rsiRef      = useRef<ISeriesApi<'Line'> | null>(null);
-  const stochKRef   = useRef<ISeriesApi<'Line'> | null>(null);
-  const stochDRef   = useRef<ISeriesApi<'Line'> | null>(null);
+  const candleRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const volumeRef = useRef<ISeriesApi<'Histogram'> | null>(null);
+  const smaRef    = useRef<ISeriesApi<'Line'> | null>(null);
+  const emaRef    = useRef<ISeriesApi<'Line'> | null>(null);
+  const rsiRef    = useRef<ISeriesApi<'Line'> | null>(null);
+  const dpoRef    = useRef<ISeriesApi<'Line'> | null>(null);
 
   const pmPriceLineRef  = useRef<any>(null);
   const extPriceLineRef = useRef<any>(null);
 
   // ── Data maps for crosshair sync ─────────────────────────────────────────
   // Key is string ('YYYY-MM-DD') for daily/weekly, number (epoch seconds) for intraday.
-  const barsMapRef      = useRef<Map<string | number, number>>(new Map()); // time → close
-  const rsiDataMapRef   = useRef<Map<string | number, number>>(new Map()); // time → RSI value
-  const stochKDataMapRef= useRef<Map<string | number, number>>(new Map()); // time → %K value
+  const barsMapRef    = useRef<Map<string | number, number>>(new Map()); // time → close
+  const rsiDataMapRef = useRef<Map<string | number, number>>(new Map()); // time → RSI value
 
   // Prevents circular crosshair sync callbacks
   const isSyncingCrosshairRef = useRef(false);
   // Prevents circular time-scale sync callbacks (shared across ALL sync handlers)
   const isSyncingRangeRef = useRef(false);
 
-  // Bar-count difference between main data and each indicator's data.
-  // RSI(14) first value at bar 14 → offset=14; Stoch(14,3) first at bar 15 → offset=15.
+  // Bar-count difference between main data and RSI data.
+  // RSI(14) first value at bar 14 → offset=14. DPO(14) also starts at bar 14.
   // When syncing ranges we subtract the offset so the same TIMESTAMPS land at the
   // same visual x-position across all panels (and the crosshair vertical lines align).
-  const rsiOffsetRef   = useRef(14);
-  const stochOffsetRef = useRef(15);
+  const rsiOffsetRef = useRef(14);
 
-  // Keep a ref to the current timezone so RSI/Stoch effects can read it at mount time.
+  // Track showDPO in a ref so the RSI init effect can read the current value without
+  // being re-run every time showDPO changes (we toggle visibility separately).
+  const showDPORef = useRef(showDPO);
+  useEffect(() => { showDPORef.current = showDPO; }, [showDPO]);
+
+  // Keep a ref to the current timezone so RSI effect can read it at mount time.
   // (ChartWidget remounts when timezone changes — see key in TradingTerminal —
   //  so this ref always holds the correct value at createChart time.)
   const timezoneRef = useRef(timezone);
@@ -238,11 +238,9 @@ export function ChartWidget({
     const onMainRangeChange = (lr: any) => {
       if (isSyncingRangeRef.current || !lr) return;
       isSyncingRangeRef.current = true;
-      const ro = rsiOffsetRef.current, so = stochOffsetRef.current;
+      const ro = rsiOffsetRef.current;
       if (rsiChartRef.current)
         safe(() => rsiChartRef.current!.timeScale().setVisibleLogicalRange({ from: lr.from - ro, to: lr.to - ro }), 'range-rsi');
-      if (stochChartRef.current)
-        safe(() => stochChartRef.current!.timeScale().setVisibleLogicalRange({ from: lr.from - so, to: lr.to - so }), 'range-stoch');
       isSyncingRangeRef.current = false;
     };
     safe(() => chart.timeScale().subscribeVisibleLogicalRangeChange(onMainRangeChange), 'range-sub');
@@ -340,6 +338,7 @@ export function ChartWidget({
       ...BASE_CHART_OPTIONS,
       width: el.clientWidth,
       height: el.clientHeight,
+      leftPriceScale: { visible: true, borderColor: '#2a2e39' },
       timeScale: {
         ...BASE_CHART_OPTIONS.timeScale,
         visible: false,
@@ -347,29 +346,40 @@ export function ChartWidget({
       },
       localization: { timeFormatter: makeTimeFormatter(timezoneRef.current) } as any,
     });
-    const rsiLine = rsiChart.addSeries(LineSeries, { color: '#b22833', lineWidth: 2, priceLineVisible: false });
+
+    // RSI line on the default right price scale (0–100)
+    const rsiLine = rsiChart.addSeries(LineSeries, {
+      color: '#b22833', lineWidth: 2, priceLineVisible: false, priceScaleId: 'right',
+    });
     safe(() => {
       rsiLine.createPriceLine({ price: 70, color: '#787b86', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'OB' });
       rsiLine.createPriceLine({ price: 30, color: '#787b86', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'OS' });
     });
+
+    // DPO line overlaid on the same chart using the left price scale (auto-range around 0)
+    const dpoLine = rsiChart.addSeries(LineSeries, {
+      color: '#e040fb', lineWidth: 1, priceLineVisible: false, priceScaleId: 'left',
+      visible: showDPORef.current,
+    });
+    // Zero line on the DPO scale
+    safe(() => {
+      dpoLine.createPriceLine({ price: 0, color: '#787b86', lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: '' });
+    });
+
     rsiChartRef.current = rsiChart;
     rsiRef.current      = rsiLine;
+    dpoRef.current      = dpoLine;
 
     const mainChart = mainChartRef.current;
 
-    // ── Reverse range sync: RSI → main (and stoch) ────────────────────────
-    // The PRIMARY sync (main → RSI) is handled by the main chart init effect
-    // using the shared isSyncingRangeRef. Here we only handle the reverse:
-    // when the user pans/zooms the RSI panel itself, propagate to main + stoch.
-    let onRsiRangeChange: (() => void) | null = null;
+    // ── Reverse range sync: RSI → main ────────────────────────────────────
+    let onRsiRangeChange: ((lr: any) => void) | null = null;
     if (mainChart) {
       onRsiRangeChange = (lr: any) => {
         if (isSyncingRangeRef.current || !lr) return;
         isSyncingRangeRef.current = true;
-        const ro = rsiOffsetRef.current, so = stochOffsetRef.current;
+        const ro = rsiOffsetRef.current;
         safe(() => mainChart.timeScale().setVisibleLogicalRange({ from: lr.from + ro, to: lr.to + ro }), 'rsi-range-main');
-        if (stochChartRef.current)
-          safe(() => stochChartRef.current!.timeScale().setVisibleLogicalRange({ from: lr.from + ro - so, to: lr.to + ro - so }), 'rsi-range-stoch');
         isSyncingRangeRef.current = false;
       };
       safe(() => rsiChart.timeScale().subscribeVisibleLogicalRangeChange(onRsiRangeChange!), 'rsi-range-sub');
@@ -380,7 +390,7 @@ export function ChartWidget({
     let unsubRsiCursor:  (() => void) | null = null;
 
     if (mainChart) {
-      // Main → RSI: when main chart cursor moves, show cursor on RSI at same time
+      // Main → RSI
       const onMainMove = (params: any) => {
         if (isSyncingCrosshairRef.current) return;
         isSyncingCrosshairRef.current = true;
@@ -398,7 +408,7 @@ export function ChartWidget({
       safe(() => mainChart.subscribeCrosshairMove(onMainMove));
       unsubMainCursor = () => safe(() => mainChart.unsubscribeCrosshairMove(onMainMove));
 
-      // RSI → Main + Stoch: when RSI cursor moves, sync to main (and stoch if open)
+      // RSI → Main
       const onRsiMove = (params: any) => {
         if (isSyncingCrosshairRef.current) return;
         isSyncingCrosshairRef.current = true;
@@ -407,10 +417,6 @@ export function ChartWidget({
             const closePrice = barsMapRef.current.get(params.time as number);
             if (closePrice !== undefined && candleRef.current) {
               safe(() => mainChart.setCrosshairPosition(closePrice, params.time, candleRef.current!));
-            }
-            const stochVal = stochKDataMapRef.current.get(params.time as number);
-            if (stochVal !== undefined && stochKRef.current && stochChartRef.current) {
-              safe(() => stochChartRef.current!.setCrosshairPosition(stochVal, params.time, stochKRef.current!));
             }
           }
         } finally {
@@ -441,122 +447,14 @@ export function ChartWidget({
       safe(() => rsiChart.remove());
       rsiChartRef.current = null;
       rsiRef.current      = null;
+      dpoRef.current      = null;
     };
   }, [showRSI]);
 
-  // ── Stochastic sub-chart ──────────────────────────────────────────────────
+  // ── DPO visibility toggle (series already lives on the RSI chart) ──────────
   useEffect(() => {
-    if (!showStoch || !stochContainerRef.current) return;
-    const el = stochContainerRef.current;
-    const stochChart = createChart(el, {
-      ...BASE_CHART_OPTIONS,
-      width: el.clientWidth,
-      height: el.clientHeight,
-      timeScale: {
-        ...BASE_CHART_OPTIONS.timeScale,
-        visible: false,
-        tickMarkFormatter: makeTickMarkFormatter(timezoneRef.current),
-      },
-      localization: { timeFormatter: makeTimeFormatter(timezoneRef.current) } as any,
-    });
-    const kLine = stochChart.addSeries(LineSeries, { color: '#26c6da', lineWidth: 2, priceLineVisible: false, title: '%K' });
-    const dLine = stochChart.addSeries(LineSeries, { color: '#ff9800', lineWidth: 1, priceLineVisible: false, title: '%D', lineStyle: 2 });
-    safe(() => {
-      kLine.createPriceLine({ price: 80, color: '#787b86', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'OB' });
-      kLine.createPriceLine({ price: 20, color: '#787b86', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'OS' });
-    });
-    stochChartRef.current = stochChart;
-    stochKRef.current     = kLine;
-    stochDRef.current     = dLine;
-
-    const mainChart = mainChartRef.current;
-
-    // ── Reverse range sync: Stoch → main (and RSI) ────────────────────────
-    // The PRIMARY sync (main → Stoch) is handled by the main chart init effect.
-    // Here we only handle the reverse: user pans/zooms the Stoch panel.
-    let onStochRangeChange: (() => void) | null = null;
-    if (mainChart) {
-      onStochRangeChange = (lr: any) => {
-        if (isSyncingRangeRef.current || !lr) return;
-        isSyncingRangeRef.current = true;
-        const ro = rsiOffsetRef.current, so = stochOffsetRef.current;
-        safe(() => mainChart.timeScale().setVisibleLogicalRange({ from: lr.from + so, to: lr.to + so }), 'stoch-range-main');
-        if (rsiChartRef.current)
-          safe(() => rsiChartRef.current!.timeScale().setVisibleLogicalRange({ from: lr.from + so - ro, to: lr.to + so - ro }), 'stoch-range-rsi');
-        isSyncingRangeRef.current = false;
-      };
-      safe(() => stochChart.timeScale().subscribeVisibleLogicalRangeChange(onStochRangeChange!), 'stoch-range-sub');
-    }
-
-    // ── Crosshair sync ───────────────────────────────────────────────────
-    let unsubMainCursor:  (() => void) | null = null;
-    let unsubStochCursor: (() => void) | null = null;
-
-    if (mainChart) {
-      // Main → Stoch
-      const onMainMove = (params: any) => {
-        if (isSyncingCrosshairRef.current) return;
-        isSyncingCrosshairRef.current = true;
-        try {
-          if (!params.time || params.point === undefined) {
-            safe(() => stochChart.clearCrosshairPosition());
-          } else {
-            const val = stochKDataMapRef.current.get(params.time as number);
-            if (val !== undefined) safe(() => stochChart.setCrosshairPosition(val, params.time, kLine));
-          }
-        } finally {
-          isSyncingCrosshairRef.current = false;
-        }
-      };
-      safe(() => mainChart.subscribeCrosshairMove(onMainMove));
-      unsubMainCursor = () => safe(() => mainChart.unsubscribeCrosshairMove(onMainMove));
-
-      // Stoch → Main + RSI
-      const onStochMove = (params: any) => {
-        if (isSyncingCrosshairRef.current) return;
-        isSyncingCrosshairRef.current = true;
-        try {
-          if (params.time && params.point !== undefined) {
-            const closePrice = barsMapRef.current.get(params.time as number);
-            if (closePrice !== undefined && candleRef.current) {
-              safe(() => mainChart.setCrosshairPosition(closePrice, params.time, candleRef.current!));
-            }
-            const rsiVal = rsiDataMapRef.current.get(params.time as number);
-            if (rsiVal !== undefined && rsiRef.current && rsiChartRef.current) {
-              safe(() => rsiChartRef.current!.setCrosshairPosition(rsiVal, params.time, rsiRef.current!));
-            }
-          }
-        } finally {
-          isSyncingCrosshairRef.current = false;
-        }
-      };
-      safe(() => stochChart.subscribeCrosshairMove(onStochMove));
-      unsubStochCursor = () => safe(() => stochChart.unsubscribeCrosshairMove(onStochMove));
-    }
-
-    // ── Resize observer ──────────────────────────────────────────────────
-    let stochRafId = 0;
-    const ro = new ResizeObserver(() => {
-      cancelAnimationFrame(stochRafId);
-      stochRafId = requestAnimationFrame(() => {
-        if (!stochContainerRef.current) return;
-        safe(() => stochChart.applyOptions({ width: stochContainerRef.current!.clientWidth, height: stochContainerRef.current!.clientHeight }));
-      });
-    });
-    ro.observe(el);
-
-    return () => {
-      cancelAnimationFrame(stochRafId);
-      ro.disconnect();
-      unsubMainCursor?.();
-      unsubStochCursor?.();
-      if (onStochRangeChange) safe(() => stochChart.timeScale().unsubscribeVisibleLogicalRangeChange(onStochRangeChange!), 'stoch-range-unsub');
-      safe(() => stochChart.remove());
-      stochChartRef.current = null;
-      stochKRef.current     = null;
-      stochDRef.current     = null;
-    };
-  }, [showStoch]);
+    if (dpoRef.current) safe(() => dpoRef.current!.applyOptions({ visible: showDPO }));
+  }, [showDPO]);
 
   // ── Data + indicators ────────────────────────────────────────────────────
   useEffect(() => {
@@ -604,36 +502,28 @@ export function ChartWidget({
       emaRef.current = s;
     });
 
-    // ── RSI ─────────────────────────────────────────────────────────────
+    // ── RSI + DPO (always calculate both; DPO visibility toggled separately) ──
     const rsiValues = calculateRSI(bars, 14);
     rsiOffsetRef.current = bars.length - rsiValues.length; // = 14
     if (showRSI && rsiRef.current && rsiChartRef.current) safe(() => {
       rsiRef.current!.setData(rsiValues.map(d => ({ time: normalizeTime(d.time as string, isDaily), value: d.value })));
-      rsiChartRef.current!.timeScale().fitContent();
       const newRsiMap = new Map<string | number, number>();
       rsiValues.forEach(d => newRsiMap.set(timeMapKey(d.time as string, isDaily), d.value));
       rsiDataMapRef.current = newRsiMap;
     });
 
-    // ── Stochastic ──────────────────────────────────────────────────────
-    const sd = calculateStochastic(bars, 14, 3);
-    stochOffsetRef.current = bars.length - sd.length; // = 15
-    if (showStoch && stochKRef.current && stochDRef.current && stochChartRef.current) safe(() => {
-      stochKRef.current!.setData(sd.map(d => ({ time: normalizeTime(d.time, isDaily), value: d.k })));
-      stochDRef.current!.setData(sd.map(d => ({ time: normalizeTime(d.time, isDaily), value: d.d })));
-      stochChartRef.current!.timeScale().fitContent();
-      const newStochMap = new Map<string | number, number>();
-      sd.forEach(d => newStochMap.set(timeMapKey(d.time, isDaily), d.k));
-      stochKDataMapRef.current = newStochMap;
+    if (showRSI && dpoRef.current && rsiChartRef.current) safe(() => {
+      const dpoValues = calculateDPO(bars, 14);
+      dpoRef.current!.setData(dpoValues.map(d => ({ time: normalizeTime(d.time as string, isDaily), value: d.value })));
+      rsiChartRef.current!.timeScale().fitContent();
     });
 
     safe(() => chart.timeScale().fitContent(), 'fitContent');
-  }, [data, isDaily, showRSI, showStoch, smaPeriod, emaPeriod]);
+  }, [data, isDaily, showRSI, smaPeriod, emaPeriod]);
 
   // ── Layout heights ──────────────────────────────────────────────────────────
-  const indicatorCount = (showRSI ? 1 : 0) + (showStoch ? 1 : 0);
-  const mainCls  = indicatorCount === 0 ? 'h-full' : indicatorCount === 1 ? 'h-[75%]' : 'h-[60%]';
-  const panelCls = indicatorCount === 2 ? 'h-[20%]' : 'h-[25%]';
+  const mainCls  = showRSI ? 'h-[75%]' : 'h-full';
+  const panelCls = 'h-[25%]';
 
   return (
     <div className="flex flex-col w-full h-full bg-[#131722] rounded-lg overflow-hidden">
@@ -643,30 +533,29 @@ export function ChartWidget({
         <div ref={chartContainerRef} className="w-full h-full" />
       </div>
 
-      {/* ── RSI panel ── */}
+      {/* ── RSI + DPO panel ── */}
       {showRSI && (
         <div className={`w-full ${panelCls} border-t border-[#2a2e39] flex flex-col`}>
-          <div className="flex items-center gap-2 px-4 py-1 bg-[#1e222d] border-b border-[#2a2e39] text-xs text-[#787b86]">
-            <span className="font-semibold text-[#b22833]">RSI</span><span>14</span>
+          <div className="flex items-center gap-3 px-4 py-1 bg-[#1e222d] border-b border-[#2a2e39] text-xs text-[#787b86]">
+            <span className="flex items-center gap-1">
+              <span className="font-semibold text-[#b22833]">RSI</span>
+              <span>14</span>
+            </span>
+            {showDPO && (
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block w-3 h-0.5 bg-[#e040fb] rounded" />
+                <span className="font-semibold text-[#e040fb]">DPO</span>
+                <span>14</span>
+              </span>
+            )}
           </div>
           <div ref={rsiContainerRef} className="w-full flex-grow" />
         </div>
       )}
 
-      {/* ── Stochastic panel ── */}
-      {showStoch && (
-        <div className={`w-full ${panelCls} border-t border-[#2a2e39] flex flex-col`}>
-          <div className="flex items-center gap-2 px-4 py-1 bg-[#1e222d] border-b border-[#2a2e39] text-xs text-[#787b86]">
-            <span className="font-semibold text-[#26c6da]">Stoch</span>
-            <span>14, 3</span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block w-2.5 h-0.5 bg-[#26c6da] rounded" />%K
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block w-2.5 h-0.5 bg-[#ff9800] rounded opacity-70" />%D
-            </span>
-          </div>
-          <div ref={stochContainerRef} className="w-full flex-grow" />
+      {/* placeholder so JSX structure compiles – stoch panel removed */}
+      {false && (
+        <div className="hidden">
         </div>
       )}
     </div>

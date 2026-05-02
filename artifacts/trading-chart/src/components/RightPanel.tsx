@@ -21,7 +21,7 @@ interface RightPanelProps {
     range?: string;
     interval?: string;
     showRSI?: boolean;
-    showStoch?: boolean;
+    showDPO?: boolean;
     smaPeriod?: number | null;
     emaPeriod?: number | null;
   };
