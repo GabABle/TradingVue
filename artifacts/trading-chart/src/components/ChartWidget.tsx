@@ -338,7 +338,7 @@ export function ChartWidget({
       ...BASE_CHART_OPTIONS,
       width: el.clientWidth,
       height: el.clientHeight,
-      leftPriceScale: { visible: true, borderColor: '#2a2e39' },
+      leftPriceScale: { visible: false },
       timeScale: {
         ...BASE_CHART_OPTIONS.timeScale,
         visible: false,
