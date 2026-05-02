@@ -539,7 +539,7 @@ export function Watchlist({ sections: propSections, onSectionsChange, activeSymb
               {sortDir === "desc" ? "▼" : sortDir === "asc" ? "▲" : ""}
             </span>
           </button>
-          <div className="w-[46px] shrink-0 text-center text-[9px] font-semibold text-[#4c525e] tracking-widest uppercase">Close</div>
+          <div className="w-[46px] shrink-0 text-center text-[9px] font-semibold text-[#4c525e] tracking-widest uppercase">Last</div>
           <div className="w-[40px] shrink-0 text-center text-[9px] font-semibold text-[#f59e0b]/70 tracking-widest uppercase">Ext</div>
           {/* bell spacer — matches bell button: shrink-0 p-0.5 w-3 */}
           <div className="shrink-0 w-3 p-0.5" />
