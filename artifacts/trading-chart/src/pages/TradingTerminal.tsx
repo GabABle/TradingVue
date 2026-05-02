@@ -310,6 +310,7 @@ export default function TradingTerminal() {
               <ChartWidget
                 key={`${symbol}|${interval}|${selectedRange}`}
                 data={barsData.bars}
+                timeframe={interval}
                 showRSI={showRSI}
                 showStoch={showStoch}
                 smaPeriod={smaPeriod}

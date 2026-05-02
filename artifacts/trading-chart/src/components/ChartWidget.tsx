@@ -22,6 +22,7 @@ export interface LiveBar {
 
 interface ChartWidgetProps {
   data: Bar[];
+  timeframe: string;
   showRSI: boolean;
   showStoch: boolean;
   smaPeriod: number | null;
@@ -43,16 +44,33 @@ function safe(fn: () => void, label = '') {
 function toEpochSeconds(isoString: string): number {
   return Math.floor(new Date(isoString).getTime() / 1000);
 }
-function normalizeTime(isoString: string): Time {
-  return toEpochSeconds(isoString) as Time;
+
+// Extract 'YYYY-MM-DD' — works for any ISO string regardless of timezone.
+// e.g. '2026-05-01T04:00:00.000Z' → '2026-05-01'
+function toDateString(isoString: string): string {
+  return isoString.slice(0, 10);
 }
-function sanitizeBars(bars: Bar[]): Bar[] {
-  const sorted = [...bars].sort((a, b) => toEpochSeconds(a.t) - toEpochSeconds(b.t));
-  const seen = new Set<number>();
+
+// Daily/weekly bars → 'YYYY-MM-DD' BusinessDay string (timezone-independent,
+// shows only the date on the x-axis — exactly like TradingView).
+// Intraday bars    → Unix epoch seconds (LightweightCharts UTCTimestamp).
+function normalizeTime(isoString: string, isDaily: boolean): Time {
+  return (isDaily ? toDateString(isoString) : toEpochSeconds(isoString)) as unknown as Time;
+}
+
+// Map key that matches what LightweightCharts stores as params.time in callbacks.
+function timeMapKey(isoString: string, isDaily: boolean): string | number {
+  return isDaily ? toDateString(isoString) : toEpochSeconds(isoString);
+}
+
+function sanitizeBars(bars: Bar[], isDaily: boolean): Bar[] {
+  // ISO strings sort lexicographically, which is correct for dates/timestamps
+  const sorted = [...bars].sort((a, b) => a.t.localeCompare(b.t));
+  const seen = new Set<string | number>();
   return sorted.filter(b => {
-    const ts = toEpochSeconds(b.t);
-    if (seen.has(ts)) return false;
-    seen.add(ts);
+    const k = timeMapKey(b.t, isDaily);
+    if (seen.has(k)) return false;
+    seen.add(k);
     return true;
   });
 }
@@ -81,8 +99,11 @@ const BASE_CHART_OPTIONS = {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function ChartWidget({
-  data, showRSI, showStoch, smaPeriod, emaPeriod, referencePrice, extPrice, extSession, liveBar,
+  data, timeframe, showRSI, showStoch, smaPeriod, emaPeriod, referencePrice, extPrice, extSession, liveBar,
 }: ChartWidgetProps) {
+  // Daily/weekly bars use BusinessDay ('YYYY-MM-DD') strings — timezone-independent.
+  // Intraday bars use UTCTimestamp (Unix epoch seconds) — renders in browser local time.
+  const isDaily = timeframe === '1Day' || timeframe === '1Week';
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const rsiContainerRef   = useRef<HTMLDivElement>(null);
   const stochContainerRef = useRef<HTMLDivElement>(null);
@@ -103,9 +124,10 @@ export function ChartWidget({
   const extPriceLineRef = useRef<any>(null);
 
   // ── Data maps for crosshair sync ─────────────────────────────────────────
-  const barsMapRef      = useRef<Map<number, number>>(new Map()); // time → close
-  const rsiDataMapRef   = useRef<Map<number, number>>(new Map()); // time → RSI value
-  const stochKDataMapRef= useRef<Map<number, number>>(new Map()); // time → %K value
+  // Key is string ('YYYY-MM-DD') for daily/weekly, number (epoch seconds) for intraday.
+  const barsMapRef      = useRef<Map<string | number, number>>(new Map()); // time → close
+  const rsiDataMapRef   = useRef<Map<string | number, number>>(new Map()); // time → RSI value
+  const stochKDataMapRef= useRef<Map<string | number, number>>(new Map()); // time → %K value
 
   // Prevents circular crosshair sync callbacks
   const isSyncingCrosshairRef = useRef(false);
@@ -251,14 +273,14 @@ export function ChartWidget({
     if (!candle || !liveBar) return;
     safe(() => {
       candle.update({
-        time:  normalizeTime(liveBar.t),
+        time:  normalizeTime(liveBar.t, isDaily),
         open:  liveBar.o,
         high:  liveBar.h,
         low:   liveBar.l,
         close: liveBar.c,
       });
     }, 'live-update');
-  }, [liveBar]);
+  }, [liveBar, isDaily]);
 
   // ── RSI sub-chart ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -480,13 +502,16 @@ export function ChartWidget({
   useEffect(() => {
     const chart = mainChartRef.current, candle = candleRef.current, volume = volumeRef.current;
     if (!chart || !candle || !volume || !data.length) return;
-    const bars = sanitizeBars(data);
+    const bars = sanitizeBars(data, isDaily);
     if (!bars.length) return;
+
+    // Update timeScale.timeVisible: daily/weekly shows only dates, intraday shows HH:MM too
+    safe(() => chart.applyOptions({ timeScale: { timeVisible: !isDaily } }), 'timeVisible');
 
     let ok = false;
     safe(() => {
       candle.setData(bars.map(b => ({
-        time: normalizeTime(b.t), open: b.o, high: b.h, low: b.l, close: b.c,
+        time: normalizeTime(b.t, isDaily), open: b.o, high: b.h, low: b.l, close: b.c,
       })));
       ok = true;
     }, 'candle-setData');
@@ -494,28 +519,28 @@ export function ChartWidget({
 
     safe(() => {
       volume.setData(bars.map(b => ({
-        time: normalizeTime(b.t), value: b.v,
+        time: normalizeTime(b.t, isDaily), value: b.v,
         color: b.c >= b.o ? 'rgba(38,166,154,0.5)' : 'rgba(239,83,80,0.5)',
       })));
     }, 'volume-setData');
 
     // ── Populate data maps for crosshair sync ───────────────────────────
-    const newBarsMap = new Map<number, number>();
-    bars.forEach(b => newBarsMap.set(toEpochSeconds(b.t), b.c));
+    const newBarsMap = new Map<string | number, number>();
+    bars.forEach(b => newBarsMap.set(timeMapKey(b.t, isDaily), b.c));
     barsMapRef.current = newBarsMap;
 
     // ── SMA / EMA ───────────────────────────────────────────────────────
     if (smaRef.current) { safe(() => chart.removeSeries(smaRef.current!)); smaRef.current = null; }
     if (smaPeriod) safe(() => {
       const s = chart.addSeries(LineSeries, { color: '#2962ff', lineWidth: 2, title: `SMA ${smaPeriod}`, priceLineVisible: false });
-      s.setData(calculateSMA(bars, smaPeriod).map(d => ({ time: normalizeTime(d.time as string), value: d.value })));
+      s.setData(calculateSMA(bars, smaPeriod).map(d => ({ time: normalizeTime(d.time as string, isDaily), value: d.value })));
       smaRef.current = s;
     });
 
     if (emaRef.current) { safe(() => chart.removeSeries(emaRef.current!)); emaRef.current = null; }
     if (emaPeriod) safe(() => {
       const s = chart.addSeries(LineSeries, { color: '#ff9800', lineWidth: 2, title: `EMA ${emaPeriod}`, priceLineVisible: false });
-      s.setData(calculateEMA(bars, emaPeriod).map(d => ({ time: normalizeTime(d.time as string), value: d.value })));
+      s.setData(calculateEMA(bars, emaPeriod).map(d => ({ time: normalizeTime(d.time as string, isDaily), value: d.value })));
       emaRef.current = s;
     });
 
@@ -523,10 +548,10 @@ export function ChartWidget({
     const rsiValues = calculateRSI(bars, 14);
     rsiOffsetRef.current = bars.length - rsiValues.length; // = 14
     if (showRSI && rsiRef.current && rsiChartRef.current) safe(() => {
-      rsiRef.current!.setData(rsiValues.map(d => ({ time: normalizeTime(d.time as string), value: d.value })));
+      rsiRef.current!.setData(rsiValues.map(d => ({ time: normalizeTime(d.time as string, isDaily), value: d.value })));
       rsiChartRef.current!.timeScale().fitContent();
-      const newRsiMap = new Map<number, number>();
-      rsiValues.forEach(d => newRsiMap.set(toEpochSeconds(d.time as string), d.value));
+      const newRsiMap = new Map<string | number, number>();
+      rsiValues.forEach(d => newRsiMap.set(timeMapKey(d.time as string, isDaily), d.value));
       rsiDataMapRef.current = newRsiMap;
     });
 
@@ -534,16 +559,16 @@ export function ChartWidget({
     const sd = calculateStochastic(bars, 14, 3);
     stochOffsetRef.current = bars.length - sd.length; // = 15
     if (showStoch && stochKRef.current && stochDRef.current && stochChartRef.current) safe(() => {
-      stochKRef.current!.setData(sd.map(d => ({ time: normalizeTime(d.time), value: d.k })));
-      stochDRef.current!.setData(sd.map(d => ({ time: normalizeTime(d.time), value: d.d })));
+      stochKRef.current!.setData(sd.map(d => ({ time: normalizeTime(d.time, isDaily), value: d.k })));
+      stochDRef.current!.setData(sd.map(d => ({ time: normalizeTime(d.time, isDaily), value: d.d })));
       stochChartRef.current!.timeScale().fitContent();
-      const newStochMap = new Map<number, number>();
-      sd.forEach(d => newStochMap.set(toEpochSeconds(d.time), d.k));
+      const newStochMap = new Map<string | number, number>();
+      sd.forEach(d => newStochMap.set(timeMapKey(d.time, isDaily), d.k));
       stochKDataMapRef.current = newStochMap;
     });
 
     safe(() => chart.timeScale().fitContent(), 'fitContent');
-  }, [data, showRSI, showStoch, smaPeriod, emaPeriod]);
+  }, [data, isDaily, showRSI, showStoch, smaPeriod, emaPeriod]);
 
   // ── Layout heights ──────────────────────────────────────────────────────────
   const indicatorCount = (showRSI ? 1 : 0) + (showStoch ? 1 : 0);
