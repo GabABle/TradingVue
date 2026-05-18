@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   createChart,
   ColorType,
@@ -185,6 +185,74 @@ export function ChartWidget({
   // (ChartWidget remounts when timezone changes — see key in TradingTerminal —
   //  so this ref always holds the correct value at createChart time.)
   const timezoneRef = useRef(timezone);
+
+  // ── Right-click context menu ──────────────────────────────────────────────
+  type CtxPanel = 'main' | 'rsi';
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; panel: CtxPanel } | null>(null);
+
+  const openCtxMenu = useCallback((e: React.MouseEvent, panel: CtxPanel) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCtxMenu({ x: e.clientX, y: e.clientY, panel });
+  }, []);
+
+  const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
+
+  // Dismiss on any outside click or Escape
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeCtxMenu(); };
+    document.addEventListener('mousedown', closeCtxMenu);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', closeCtxMenu);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [ctxMenu, closeCtxMenu]);
+
+  const ctxActions = useCallback((panel: CtxPanel) => {
+    const main = mainChartRef.current;
+    const rsi  = rsiChartRef.current;
+    const target = panel === 'rsi' ? rsi : main;
+    return [
+      {
+        label: 'Auto scale price',
+        shortcut: 'A',
+        action: () => {
+          if (target) safe(() => target.priceScale('right').applyOptions({ autoScale: true }), 'ctx-auto');
+          // volume overlay scale
+          if (main && panel === 'main') safe(() => main.priceScale('volume').applyOptions({ autoScale: true }), 'ctx-vol');
+        },
+      },
+      {
+        label: 'Fit all data',
+        shortcut: 'Alt+F',
+        action: () => {
+          if (main) safe(() => main.timeScale().fitContent(), 'ctx-fit');
+        },
+      },
+      {
+        label: 'Scroll to latest',
+        shortcut: 'End',
+        action: () => {
+          if (main) safe(() => main.timeScale().scrollToRealTime(), 'ctx-latest');
+        },
+      },
+      null, // separator
+      {
+        label: 'Reset all scales',
+        shortcut: '',
+        action: () => {
+          if (main) {
+            safe(() => main.priceScale('right').applyOptions({ autoScale: true }), 'ctx-rst-main');
+            safe(() => main.priceScale('volume').applyOptions({ autoScale: true }), 'ctx-rst-vol');
+            safe(() => main.timeScale().fitContent(), 'ctx-rst-time');
+          }
+          if (rsi) safe(() => rsi.priceScale('right').applyOptions({ autoScale: true }), 'ctx-rst-rsi');
+        },
+      },
+    ] as const;
+  }, []);
 
   // ── Main chart: init once ────────────────────────────────────────────────
   useEffect(() => {
@@ -545,17 +613,32 @@ export function ChartWidget({
   const mainCls  = showRSI ? 'h-[75%]' : 'h-full';
   const panelCls = 'h-[25%]';
 
+  // ── Context menu items built at render time ────────────────────────────────
+  const menuItems = ctxMenu ? ctxActions(ctxMenu.panel) : [];
+
+  // Clamp menu so it never overflows the viewport
+  const menuW = 220;
+  const menuH = 160; // approximate
+  const menuLeft = ctxMenu ? Math.min(ctxMenu.x, window.innerWidth  - menuW - 8) : 0;
+  const menuTop  = ctxMenu ? Math.min(ctxMenu.y, window.innerHeight - menuH - 8) : 0;
+
   return (
     <div className="flex flex-col w-full h-full bg-[#131722] rounded-lg overflow-hidden">
 
       {/* ── Main candlestick pane ── */}
-      <div className={`relative w-full ${mainCls}`}>
+      <div
+        className={`relative w-full ${mainCls}`}
+        onContextMenu={(e) => openCtxMenu(e, 'main')}
+      >
         <div ref={chartContainerRef} className="w-full h-full" />
       </div>
 
       {/* ── RSI + DPO panel ── */}
       {showRSI && (
-        <div className={`w-full ${panelCls} border-t border-[#2a2e39] flex flex-col`}>
+        <div
+          className={`w-full ${panelCls} border-t border-[#2a2e39] flex flex-col`}
+          onContextMenu={(e) => openCtxMenu(e, 'rsi')}
+        >
           <div className="flex items-center gap-3 px-4 py-1 bg-[#1e222d] border-b border-[#2a2e39] text-xs text-[#787b86]">
             <span className="flex items-center gap-1">
               <span className="font-semibold text-[#b22833]">RSI</span>
@@ -573,9 +656,38 @@ export function ChartWidget({
         </div>
       )}
 
-      {/* placeholder so JSX structure compiles – stoch panel removed */}
-      {false && (
-        <div className="hidden">
+      {/* ── Right-click context menu ── */}
+      {ctxMenu && (
+        <div
+          className="fixed z-[9999] min-w-[200px] rounded-md border border-[#2a2e39] bg-[#1e222d] shadow-2xl py-1 text-sm"
+          style={{ left: menuLeft, top: menuTop }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          {/* panel label */}
+          <div className="px-3 py-1 text-[10px] font-semibold tracking-widest uppercase text-[#4c525e] border-b border-[#2a2e39] mb-1">
+            {ctxMenu.panel === 'rsi' ? 'RSI / DPO Panel' : 'Price Chart'}
+          </div>
+
+          {menuItems.map((item, i) =>
+            item === null ? (
+              <div key={i} className="my-1 border-t border-[#2a2e39]" />
+            ) : (
+              <button
+                key={item.label}
+                className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-[#2962ff]/20 text-[#d1d4dc] hover:text-white transition-colors text-left"
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  item.action();
+                  closeCtxMenu();
+                }}
+              >
+                <span>{item.label}</span>
+                {item.shortcut && (
+                  <span className="ml-6 text-[11px] text-[#4c525e] font-mono">{item.shortcut}</span>
+                )}
+              </button>
+            )
+          )}
         </div>
       )}
     </div>
