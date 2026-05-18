@@ -210,9 +210,9 @@ export default function TradingTerminal() {
       const formatted = price < 1
         ? `$${price.toFixed(4)}`
         : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(price);
-      document.title = `${symbol} ${formatted} — TradingVue`;
+      document.title = `${symbol} ${formatted}`;
     } else {
-      document.title = `${symbol} — TradingVue`;
+      document.title = symbol;
     }
     return () => { document.title = 'TradingVue'; };
   }, [symbol, quoteData]);

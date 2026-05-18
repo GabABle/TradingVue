@@ -53,6 +53,26 @@ function fmt(p: number | null | undefined): string {
   return p < 1 ? p.toFixed(4) : p.toFixed(2);
 }
 
+// Deterministic hue from symbol string so each ticker gets a consistent color
+function symbolHue(sym: string): number {
+  let h = 0;
+  for (let i = 0; i < sym.length; i++) h = (h * 31 + sym.charCodeAt(i)) & 0xffff;
+  return h % 360;
+}
+
+function TickerIcon({ symbol }: { symbol: string }) {
+  const hue = symbolHue(symbol);
+  const label = symbol.length <= 2 ? symbol : symbol.slice(0, 2);
+  return (
+    <span
+      className="shrink-0 w-[18px] h-[18px] rounded-sm flex items-center justify-center text-[8px] font-bold leading-none select-none"
+      style={{ background: `hsl(${hue},55%,28%)`, color: `hsl(${hue},80%,75%)` }}
+    >
+      {label}
+    </span>
+  );
+}
+
 function SymbolRow({
   symbol,
   isActive,
@@ -137,20 +157,12 @@ function SymbolRow({
           <GripVertical className="w-3 h-3" />
         </div>
 
+        <TickerIcon symbol={symbol} />
+
         <div className="flex-1 min-w-0">
           <span className={`text-xs font-bold font-mono truncate block ${isActive ? "text-[#2962ff]" : "text-[#d1d4dc]"}`}>
             {symbol}
           </span>
-        </div>
-
-        <div className="w-[46px] shrink-0 text-center">
-          {quote ? (
-            <span className={`text-[11px] font-semibold font-mono ${isUp ? "text-[#26a69a]" : "text-[#ef5350]"}`}>
-              {isUp ? "+" : ""}{quote.changePercent.toFixed(2)}%
-            </span>
-          ) : (
-            <span className="text-[10px] text-[#787b86]">—</span>
-          )}
         </div>
 
         <div className="w-[46px] shrink-0 text-center">
@@ -169,6 +181,16 @@ function SymbolRow({
               {fmt(extPrice)}
             </span>
           ) : null}
+        </div>
+
+        <div className="w-[46px] shrink-0 text-center">
+          {quote ? (
+            <span className={`text-[11px] font-semibold font-mono ${isUp ? "text-[#26a69a]" : "text-[#ef5350]"}`}>
+              {isUp ? "+" : ""}{quote.changePercent.toFixed(2)}%
+            </span>
+          ) : (
+            <span className="text-[10px] text-[#787b86]">—</span>
+          )}
         </div>
 
         {/* Bell icon — always visible, amber when alert active */}
@@ -526,9 +548,13 @@ export function Watchlist({ sections: propSections, onSectionsChange, activeSymb
           the grip handle (left) and the bell + remove buttons (right). */}
       {hasAny && (
         <div className="flex items-center gap-1 px-1.5 mx-1 pt-1.5 pb-0.5 border-b border-[#2a2e39]/50 shrink-0">
-          {/* grip spacer — matches drag handle: p-0.5 -ml-0.5 w-3 */}
+          {/* grip spacer */}
           <div className="shrink-0 w-3 p-0.5 -ml-0.5" />
+          {/* icon spacer — matches TickerIcon w-[18px] */}
+          <div className="shrink-0 w-[18px]" />
           <div className="flex-1 min-w-0 text-[9px] font-semibold text-[#4c525e] tracking-widest uppercase">Symbol</div>
+          <div className="w-[46px] shrink-0 text-center text-[9px] font-semibold text-[#4c525e] tracking-widest uppercase">Last</div>
+          <div className="w-[40px] shrink-0 text-center text-[9px] font-semibold text-[#f59e0b]/70 tracking-widest uppercase">Ext</div>
           <button
             onClick={toggleSort}
             title={sortDir === null ? "Sort by % change (high→low)" : sortDir === "desc" ? "Sort by % change (low→high)" : "Clear sort"}
@@ -539,11 +565,9 @@ export function Watchlist({ sections: propSections, onSectionsChange, activeSymb
               {sortDir === "desc" ? "▼" : sortDir === "asc" ? "▲" : ""}
             </span>
           </button>
-          <div className="w-[46px] shrink-0 text-center text-[9px] font-semibold text-[#4c525e] tracking-widest uppercase">Last</div>
-          <div className="w-[40px] shrink-0 text-center text-[9px] font-semibold text-[#f59e0b]/70 tracking-widest uppercase">Ext</div>
-          {/* bell spacer — matches bell button: shrink-0 p-0.5 w-3 */}
+          {/* bell spacer */}
           <div className="shrink-0 w-3 p-0.5" />
-          {/* remove spacer — matches X button: shrink-0 p-0.5 w-3 */}
+          {/* remove spacer */}
           <div className="shrink-0 w-3 p-0.5" />
         </div>
       )}
