@@ -96,4 +96,58 @@ router.put("/user/preferences", requireAuth, async (req, res) => {
   }
 });
 
+// ── Portfolio ──────────────────────────────────────────────────────────────────
+
+router.get("/user/portfolio", requireAuth, async (req, res) => {
+  const { userId } = req.user!;
+  try {
+    const result = await pool.query(
+      "SELECT symbol, shares, avg_cost, notes FROM user_portfolio WHERE user_id = $1 ORDER BY symbol",
+      [userId],
+    );
+    res.json({ items: result.rows });
+  } catch (err) {
+    req.log.error(err, "Get portfolio failed");
+    res.status(500).json({ error: "Failed to load portfolio" });
+  }
+});
+
+router.put("/user/portfolio/:symbol", requireAuth, async (req, res) => {
+  const { userId } = req.user!;
+  const symbol = (req.params.symbol as string).toUpperCase();
+  const { shares, avg_cost, notes } = req.body as { shares?: unknown; avg_cost?: unknown; notes?: unknown };
+  const sharesNum   = parseFloat(String(shares ?? 0));
+  const avgCostNum  = parseFloat(String(avg_cost ?? 0));
+  const notesStr    = typeof notes === "string" ? notes.slice(0, 500) : "";
+  if (isNaN(sharesNum) || isNaN(avgCostNum)) {
+    res.status(400).json({ error: "shares and avg_cost must be numbers" });
+    return;
+  }
+  try {
+    await pool.query(
+      `INSERT INTO user_portfolio (user_id, symbol, shares, avg_cost, notes, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())
+       ON CONFLICT (user_id, symbol)
+       DO UPDATE SET shares = $3, avg_cost = $4, notes = $5, updated_at = NOW()`,
+      [userId, symbol, sharesNum, avgCostNum, notesStr],
+    );
+    res.json({ success: true });
+  } catch (err) {
+    req.log.error(err, "Save portfolio item failed");
+    res.status(500).json({ error: "Failed to save portfolio item" });
+  }
+});
+
+router.delete("/user/portfolio/:symbol", requireAuth, async (req, res) => {
+  const { userId } = req.user!;
+  const symbol = (req.params.symbol as string).toUpperCase();
+  try {
+    await pool.query("DELETE FROM user_portfolio WHERE user_id = $1 AND symbol = $2", [userId, symbol]);
+    res.json({ success: true });
+  } catch (err) {
+    req.log.error(err, "Delete portfolio item failed");
+    res.status(500).json({ error: "Failed to delete portfolio item" });
+  }
+});
+
 export default router;
