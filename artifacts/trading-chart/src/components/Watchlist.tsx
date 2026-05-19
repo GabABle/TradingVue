@@ -73,139 +73,6 @@ function TickerIcon({ symbol }: { symbol: string }) {
   );
 }
 
-// ── Portfolio types ────────────────────────────────────────────────────────────
-export interface PortfolioItem {
-  symbol: string;
-  shares: number;
-  avg_cost: number;
-  notes: string;
-}
-
-// ── Portfolio popover ──────────────────────────────────────────────────────────
-function PortfolioPopover({
-  symbol,
-  existing,
-  anchorRef,
-  onSave,
-  onRemove,
-  onClose,
-}: {
-  symbol: string;
-  existing: PortfolioItem | null;
-  anchorRef: React.RefObject<HTMLButtonElement | null>;
-  onSave: (shares: number, avgCost: number, notes: string) => void;
-  onRemove: () => void;
-  onClose: () => void;
-}) {
-  const [shares,  setShares]  = useState(existing ? String(existing.shares)   : "");
-  const [avgCost, setAvgCost] = useState(existing ? String(existing.avg_cost) : "");
-  const [notes,   setNotes]   = useState(existing?.notes ?? "");
-  const popRef = useRef<HTMLDivElement>(null);
-
-  // Position below/above anchor
-  const [pos, setPos] = useState({ top: 0, left: 0 });
-  useEffect(() => {
-    const btn = anchorRef.current;
-    if (!btn) return;
-    const r = btn.getBoundingClientRect();
-    const pH = 220;
-    const top = r.bottom + 4 + pH > window.innerHeight ? r.top - pH - 4 : r.bottom + 4;
-    const left = Math.min(r.left - 60, window.innerWidth - 240);
-    setPos({ top, left: Math.max(8, left) });
-  }, [anchorRef]);
-
-  // Dismiss on outside click / Escape
-  useEffect(() => {
-    const down = (e: MouseEvent) => {
-      if (popRef.current && !popRef.current.contains(e.target as Node) &&
-          anchorRef.current && !anchorRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    const key = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    document.addEventListener("mousedown", down);
-    document.addEventListener("keydown", key);
-    return () => { document.removeEventListener("mousedown", down); document.removeEventListener("keydown", key); };
-  }, [onClose, anchorRef]);
-
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const s = parseFloat(shares);
-    const c = parseFloat(avgCost);
-    if (isNaN(s) || isNaN(c) || s < 0 || c < 0) return;
-    onSave(s, c, notes);
-    onClose();
-  };
-
-  return (
-    <div
-      ref={popRef}
-      className="fixed z-[9999] w-56 bg-[#1e222d] border border-[#2a2e39] rounded-lg shadow-2xl p-3"
-      style={{ top: pos.top, left: pos.left }}
-      onMouseDown={(e) => e.stopPropagation()}
-    >
-      {/* Header */}
-      <div className="flex items-center justify-between mb-2.5">
-        <div className="flex items-center gap-1.5">
-          <Briefcase className="w-3.5 h-3.5 text-[#26a69a]" />
-          <span className="text-xs font-bold text-[#d1d4dc]">{symbol}</span>
-        </div>
-        <button onClick={onClose} className="text-[#4c525e] hover:text-[#d1d4dc] transition-colors p-0.5">
-          <X className="w-3 h-3" />
-        </button>
-      </div>
-
-      <form onSubmit={submit} className="flex flex-col gap-2">
-        <div>
-          <label className="block text-[9px] font-semibold text-[#4c525e] tracking-widest uppercase mb-1">Shares</label>
-          <input
-            autoFocus
-            type="number" min="0" step="any"
-            value={shares} onChange={e => setShares(e.target.value)}
-            placeholder="0"
-            className="w-full bg-[#131722] border border-[#2a2e39] rounded px-2 py-1 text-xs text-[#d1d4dc] outline-none focus:border-[#2962ff]/60 placeholder-[#4c525e]"
-          />
-        </div>
-        <div>
-          <label className="block text-[9px] font-semibold text-[#4c525e] tracking-widest uppercase mb-1">Avg Cost</label>
-          <input
-            type="number" min="0" step="any"
-            value={avgCost} onChange={e => setAvgCost(e.target.value)}
-            placeholder="0.00"
-            className="w-full bg-[#131722] border border-[#2a2e39] rounded px-2 py-1 text-xs text-[#d1d4dc] outline-none focus:border-[#2962ff]/60 placeholder-[#4c525e]"
-          />
-        </div>
-        <div>
-          <label className="block text-[9px] font-semibold text-[#4c525e] tracking-widest uppercase mb-1">Notes</label>
-          <input
-            type="text" maxLength={200}
-            value={notes} onChange={e => setNotes(e.target.value)}
-            placeholder="optional"
-            className="w-full bg-[#131722] border border-[#2a2e39] rounded px-2 py-1 text-xs text-[#d1d4dc] outline-none focus:border-[#2962ff]/60 placeholder-[#4c525e]"
-          />
-        </div>
-
-        <div className="flex gap-1.5 mt-1">
-          <button
-            type="submit"
-            className="flex-1 py-1 rounded text-[11px] font-semibold bg-[#26a69a] hover:bg-[#26a69a]/80 text-white transition-colors"
-          >
-            {existing ? "Update" : "Add"}
-          </button>
-          {existing && (
-            <button
-              type="button"
-              onClick={() => { onRemove(); onClose(); }}
-              className="px-2 py-1 rounded text-[11px] font-semibold bg-[#ef5350]/20 hover:bg-[#ef5350]/40 text-[#ef5350] transition-colors"
-            >
-              Remove
-            </button>
-          )}
-        </div>
-      </form>
-    </div>
-  );
-}
 
 function SymbolRow({
   symbol,
@@ -214,12 +81,11 @@ function SymbolRow({
   isDragOver,
   dragOverTop,
   hasAlert,
-  portfolioItem,
+  isTagged,
   onClick,
   onRemove,
   onAlertClick,
-  onPortfolioSave,
-  onPortfolioRemove,
+  onPortfolioToggle,
   onDragStart,
   onDragEnd,
   onDragOver,
@@ -232,12 +98,11 @@ function SymbolRow({
   isDragOver: boolean;
   dragOverTop: boolean;
   hasAlert: boolean;
-  portfolioItem: PortfolioItem | null;
+  isTagged: boolean;
   onClick: () => void;
   onRemove: () => void;
   onAlertClick: (price: number | null) => void;
-  onPortfolioSave: (symbol: string, shares: number, avgCost: number, notes: string) => void;
-  onPortfolioRemove: (symbol: string) => void;
+  onPortfolioToggle: (symbol: string) => void;
   onDragStart: (e: React.DragEvent) => void;
   onDragEnd: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent, symbol: string) => void;
@@ -267,9 +132,6 @@ function SymbolRow({
         ? (quote?.price ?? null)
         : null;
   const extPrice: number | null = rawExtPrice ?? null;
-
-  const [portfolioOpen, setPortfolioOpen] = useState(false);
-  const briefcaseBtnRef = useRef<HTMLButtonElement>(null);
 
   return (
     <div
@@ -306,10 +168,10 @@ function SymbolRow({
           <span className={`text-xs font-bold font-mono truncate ${isActive ? "text-[#2962ff]" : "text-[#d1d4dc]"}`}>
             {symbol}
           </span>
-          {portfolioItem && (
+          {isTagged && (
             <span
               className="shrink-0 w-1.5 h-1.5 rounded-full bg-[#26a69a]"
-              title={`Portfolio: ${portfolioItem.shares} shares @ $${portfolioItem.avg_cost}`}
+              title="Tagged"
             />
           )}
         </div>
@@ -344,16 +206,15 @@ function SymbolRow({
 
         {/* Portfolio / briefcase — always visible when tagged, hover-only otherwise */}
         <button
-          ref={briefcaseBtnRef}
           className={`shrink-0 p-0.5 rounded transition-all z-10 ${
-            portfolioItem
+            isTagged
               ? "text-[#26a69a] hover:text-[#26a69a]/70"
               : "text-[#2a2e39] opacity-0 group-hover:opacity-100 group-hover:text-[#4c525e] hover:text-[#787b86]"
           }`}
-          onClick={(e) => { e.stopPropagation(); setPortfolioOpen(o => !o); }}
-          title={portfolioItem ? `Portfolio: ${portfolioItem.shares} shares @ $${portfolioItem.avg_cost}` : "Add to portfolio"}
+          onClick={(e) => { e.stopPropagation(); onPortfolioToggle(symbol); }}
+          title={isTagged ? "Remove tag" : "Tag symbol"}
         >
-          <Briefcase className={`w-3 h-3 ${portfolioItem ? "fill-[#26a69a]/20" : ""}`} />
+          <Briefcase className={`w-3 h-3 ${isTagged ? "fill-[#26a69a]/20" : ""}`} />
         </button>
 
         {/* Bell icon — always visible, amber when alert active */}
@@ -379,17 +240,6 @@ function SymbolRow({
         </button>
       </div>
 
-      {/* Portfolio popover */}
-      {portfolioOpen && (
-        <PortfolioPopover
-          symbol={symbol}
-          existing={portfolioItem}
-          anchorRef={briefcaseBtnRef}
-          onSave={(shares, avgCost, notes) => onPortfolioSave(symbol, shares, avgCost, notes)}
-          onRemove={() => onPortfolioRemove(symbol)}
-          onClose={() => setPortfolioOpen(false)}
-        />
-      )}
     </div>
   );
 }
@@ -531,41 +381,36 @@ export function Watchlist({ sections: propSections, onSectionsChange, activeSymb
     });
   }, []);
 
-  // ── Portfolio state ──────────────────────────────────────────────────────
-  const [portfolioMap, setPortfolioMap] = useState<Record<string, PortfolioItem>>({});
+  // ── Portfolio tag state ───────────────────────────────────────────────────
+  const [taggedSymbols, setTaggedSymbols] = useState<Set<string>>(new Set());
+  const [portfolioFilter, setPortfolioFilter] = useState(false);
 
   const refreshPortfolio = useCallback(async () => {
     try {
       const r = await authFetch(`${BASE}/api/user/portfolio`);
       if (r.ok) {
-        const data = await r.json() as { items: PortfolioItem[] };
-        const map: Record<string, PortfolioItem> = {};
-        data.items.forEach(item => { map[item.symbol] = item; });
-        setPortfolioMap(map);
+        const data = await r.json() as { symbols: string[] };
+        setTaggedSymbols(new Set(data.symbols));
       }
     } catch { /* ignore */ }
   }, [authFetch]);
 
   useEffect(() => { refreshPortfolio(); }, [refreshPortfolio]);
 
-  const handlePortfolioSave = useCallback(async (symbol: string, shares: number, avgCost: number, notes: string) => {
+  const handlePortfolioToggle = useCallback(async (symbol: string) => {
+    const isTagged = taggedSymbols.has(symbol);
     // Optimistic update
-    setPortfolioMap(prev => ({ ...prev, [symbol]: { symbol, shares, avg_cost: avgCost, notes } }));
+    setTaggedSymbols(prev => {
+      const next = new Set(prev);
+      if (isTagged) next.delete(symbol); else next.add(symbol);
+      return next;
+    });
     try {
       await authFetch(`${BASE}/api/user/portfolio/${encodeURIComponent(symbol)}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shares, avg_cost: avgCost, notes }),
+        method: isTagged ? "DELETE" : "PUT",
       });
     } catch { /* ignore */ }
-  }, [authFetch]);
-
-  const handlePortfolioRemove = useCallback(async (symbol: string) => {
-    setPortfolioMap(prev => { const n = { ...prev }; delete n[symbol]; return n; });
-    try {
-      await authFetch(`${BASE}/api/user/portfolio/${encodeURIComponent(symbol)}`, { method: "DELETE" });
-    } catch { /* ignore */ }
-  }, [authFetch]);
+  }, [authFetch, taggedSymbols]);
 
   const toggleSort = useCallback(() => {
     setSortDir(d => d === null ? "desc" : d === "desc" ? "asc" : null);
@@ -738,6 +583,17 @@ export function Watchlist({ sections: propSections, onSectionsChange, activeSymb
         </div>
         <div className="flex items-center gap-1">
           <button
+            className={`w-6 h-6 flex items-center justify-center rounded transition-colors ${
+              portfolioFilter
+                ? "bg-[#26a69a]/20 text-[#26a69a] hover:bg-[#26a69a]/30"
+                : "hover:bg-[#2a2e39] text-[#787b86] hover:text-[#d1d4dc]"
+            }`}
+            onClick={() => setPortfolioFilter(f => !f)}
+            title={portfolioFilter ? "Show all symbols" : "Show tagged only"}
+          >
+            <Briefcase className="w-3.5 h-3.5" />
+          </button>
+          <button
             className="w-6 h-6 flex items-center justify-center rounded hover:bg-[#2a2e39] text-[#787b86] hover:text-[#d1d4dc] transition-colors"
             onClick={addSection}
             title="New section"
@@ -851,7 +707,7 @@ export function Watchlist({ sections: propSections, onSectionsChange, activeSymb
                           return sortDir === "desc" ? pb - pa : pa - pb;
                         })
                       : section.symbols
-                    ).map((sym) => (
+                    ).filter(sym => !portfolioFilter || taggedSymbols.has(sym)).map((sym) => (
                       <SymbolRow
                         key={sym}
                         symbol={sym}
@@ -860,12 +716,11 @@ export function Watchlist({ sections: propSections, onSectionsChange, activeSymb
                         isDragOver={symbolDropTarget?.sectionId === section.id && symbolDropTarget?.insertBefore === sym}
                         dragOverTop={true}
                         hasAlert={alertedSymbols.has(sym)}
-                        portfolioItem={portfolioMap[sym] ?? null}
+                        isTagged={taggedSymbols.has(sym)}
                         onClick={() => onSelect(sym)}
                         onRemove={() => setSections(prev => removeSymbolFromSections(prev, sym))}
                         onAlertClick={(price) => { onAlertOpen(sym, price); refreshAlerts(); }}
-                        onPortfolioSave={handlePortfolioSave}
-                        onPortfolioRemove={handlePortfolioRemove}
+                        onPortfolioToggle={handlePortfolioToggle}
                         onDragStart={(e) => handleSymbolDragStart(e, sym, section.id)}
                         onDragEnd={handleSymbolDragEnd}
                         onDragOver={(e, s) => handleSymbolDragOver(e, section.id, s)}
