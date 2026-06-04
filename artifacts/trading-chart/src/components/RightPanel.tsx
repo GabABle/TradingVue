@@ -4,9 +4,9 @@ import { NewsPanel } from "@/components/NewsPanel";
 import { ChatPanel } from "@/components/ChatPanel";
 import { type WatchlistSection } from "@/lib/watchlist-sections";
 
-const MIN_WIDTH    = 180;
-const MAX_WIDTH    = 520;
-const DEFAULT_WIDTH = 208;
+const MIN_WIDTH    = 280;
+const MAX_WIDTH    = 600;
+const DEFAULT_WIDTH = 320;
 const STORAGE_KEY_WIDTH = "tradingTerminalRightPanelWidth";
 
 interface RightPanelProps {

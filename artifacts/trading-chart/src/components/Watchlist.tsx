@@ -574,7 +574,7 @@ export function Watchlist({ sections: propSections, onSectionsChange, activeSymb
   const hasAny = allSymbols.length > 0;
 
   return (
-    <div className={`flex flex-col bg-[#131722] overflow-hidden ${fullHeight ? "h-full" : "w-60 shrink-0 border-l border-[#2a2e39] h-full"}`}>
+    <div className={`flex flex-col bg-[#131722] overflow-hidden ${fullHeight ? "h-full" : "w-[320px] shrink-0 border-l border-[#2a2e39] h-full"}`}>
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-[#2a2e39] shrink-0">
         <div className="flex items-center gap-1.5">

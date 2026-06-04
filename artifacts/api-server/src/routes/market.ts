@@ -159,7 +159,7 @@ async function fetchAlpacaStockSnapshot(symbol: string): Promise<{
   price: number; open: number; high: number; low: number; volume: number;
   prevClose: number; todayClose: number | null; timestamp: string;
 } | null> {
-  const r = await fetch(`${DATA_BASE_URL}/stocks/${symbol}/snapshot`, { headers: alpacaHeaders() });
+  const r = await fetch(`${DATA_BASE_URL}/stocks/${symbol}/snapshot?feed=iex`, { headers: alpacaHeaders() });
   if (!r.ok) return null;
   const snap = await r.json() as any;
 
