@@ -1,6 +1,6 @@
-import { Activity, TrendingUp, Settings2, Search, BarChart2, ArrowLeftRight, Globe } from "lucide-react";
+import { Activity, TrendingUp, Settings2, BarChart2, ArrowLeftRight, Globe } from "lucide-react";
 import { UserMenu } from "@/components/UserMenu";
-import { useGetQuote } from "@workspace/api-client-react";
+import { useGetQuote, useSearchSymbols } from "@workspace/api-client-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   type RangeKey,
@@ -76,7 +76,6 @@ export function TopToolbar({
   setSmaPeriod,
   emaPeriod,
   setEmaPeriod,
-  onSearchOpen,
   onTradeOpen,
   timezone,
   onTimezoneChange,
@@ -85,6 +84,15 @@ export function TopToolbar({
     { symbol },
     { query: { refetchInterval: 10_000 } }
   );
+
+  const { data: searchData } = useSearchSymbols(
+    { query: symbol },
+    { query: { enabled: !!symbol } }
+  );
+
+  const companyName = searchData?.results?.find(
+    (r: any) => r.symbol?.toUpperCase() === symbol.toUpperCase()
+  )?.name;
 
   const validIntervals = RANGE_CONFIG[selectedRange].intervals;
 
@@ -98,14 +106,20 @@ export function TopToolbar({
 
       {/* ── Left: symbol + live price ── */}
       <div className="flex items-center gap-3 shrink-0">
-        <button
-          className="group flex items-center gap-2 px-3 py-1.5 bg-[#131722] hover:bg-[#2a2e39] border border-[#2a2e39] hover:border-[#363a45] rounded-md transition-all duration-150 shadow-sm"
-          onClick={() => onSearchOpen()}
-          title="Click or start typing to search symbols"
+        <a
+          href={`https://finance.yahoo.com/quote/${symbol}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="group flex flex-col items-start justify-center gap-0 px-3 py-1.5 bg-[#131722] hover:bg-[#2a2e39] border border-[#2a2e39] hover:border-[#363a45] rounded-md transition-all duration-150 shadow-sm"
+          title="View on Yahoo Finance"
         >
-          <Search className="w-3.5 h-3.5 text-[#4a4f5e] group-hover:text-[#787b86] transition-colors shrink-0" />
-          <span className="text-[#d1d4dc] font-mono font-bold text-sm tracking-wide">{symbol}</span>
-        </button>
+          <span className="text-[#d1d4dc] font-mono font-bold text-sm tracking-wide leading-tight">{symbol}</span>
+          {companyName && (
+            <span className="text-[#787b86] text-[10px] leading-tight tracking-wide truncate max-w-[140px]">
+              {companyName}
+            </span>
+          )}
+        </a>
 
         {quote ? (
           <div className="hidden sm:flex items-center gap-2">
