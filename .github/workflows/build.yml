@@ -1,0 +1,86 @@
+name: Build
+
+# Builds the API container (runtime + migrate targets) and the frontend bundle
+# ONCE. The resulting image tag is reused for both staging and production so the
+# exact same artifact is promoted through the gate.
+on:
+  workflow_call:
+    outputs:
+      image_tag:
+        description: Git-SHA-derived image tag built by this run.
+        value: ${{ jobs.build.outputs.image_tag }}
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.vars.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: vars
+        run: echo "sha=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Resolve ECR repository
+        run: |
+          ECR=$(aws ssm get-parameter --name /tradingvue/shared/ecr_repository_url \
+            --query 'Parameter.Value' --output text)
+          echo "ECR_REPOSITORY_URL=$ECR" >> "$GITHUB_ENV"
+          echo "ECR_REGISTRY=${ECR%%/*}" >> "$GITHUB_ENV"
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build & push API image (runtime)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime
+          push: true
+          tags: ${{ env.ECR_REPOSITORY_URL }}:${{ steps.vars.outputs.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push migration image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: migrate
+          push: true
+          tags: ${{ env.ECR_REPOSITORY_URL }}:migrate-${{ steps.vars.outputs.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Build frontend
+        env:
+          NODE_ENV: production
+          PORT: "3000"
+          BASE_PATH: "/"
+        run: |
+          pnpm install --no-frozen-lockfile --prod=false
+          pnpm --filter @workspace/trading-chart run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-${{ steps.vars.outputs.sha }}
+          path: artifacts/trading-chart/dist/public
+          retention-days: 7
