@@ -1,0 +1,126 @@
+#!/bin/bash
+set -xe
+exec > >(tee /var/log/user-data.log) 2>&1
+
+dnf update -y
+dnf install -y docker
+systemctl enable --now docker
+
+# docker compose v2 plugin
+mkdir -p /usr/libexec/docker/cli-plugins
+curl -fsSL https://github.com/docker/compose/releases/download/v2.32.4/docker-compose-linux-x86_64 \
+  -o /usr/libexec/docker/cli-plugins/docker-compose
+chmod +x /usr/libexec/docker/cli-plugins/docker-compose
+
+# Authenticate to ECR
+for i in $(seq 1 10); do
+  aws ecr get-login-password --region ${region} \
+    | docker login --username AWS --password-stdin ${ecr_registry} && break
+  sleep 6
+done
+
+mkdir -p /opt/tradingvue && cd /opt/tradingvue
+
+# Fetch the app's API keys from SSM Parameter Store (managed by the account
+# owner) and write them to an env file the api container loads. Keys are pulled
+# at boot via the instance role and never embedded in user-data/metadata.
+get_param() { aws ssm get-parameter --name "$1" --with-decryption --region ${region} --query Parameter.Value --output text 2>/dev/null; }
+ALPACA_KEY=$(get_param /tradingvue/ALPACA_API_KEY)
+ALPACA_SECRET=$(get_param /tradingvue/ALPACA_API_SECRET)
+POLYGON_KEY=$(get_param /tradingvue/POLYGON_API_KEY)
+OPENAI_KEY=$(get_param /tradingvue/OPENAI_API_KEY)
+OPENAI_BASE=$(get_param /tradingvue/OPENAI_BASE_URL)
+[ -z "$OPENAI_KEY" ] && OPENAI_KEY="sk-placeholder-not-configured"
+[ -z "$OPENAI_BASE" ] && OPENAI_BASE="https://api.openai.com/v1"
+
+cat > /opt/tradingvue/app-secrets.env <<ENV
+ALPACA_API_KEY=$ALPACA_KEY
+ALPACA_API_SECRET=$ALPACA_SECRET
+POLYGON_API_KEY=$POLYGON_KEY
+AI_INTEGRATIONS_OPENAI_API_KEY=$OPENAI_KEY
+AI_INTEGRATIONS_OPENAI_BASE_URL=$OPENAI_BASE
+ENV
+chmod 600 /opt/tradingvue/app-secrets.env
+cat > docker-compose.yml <<'COMPOSE'
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tradingvue
+      POSTGRES_PASSWORD: ${db_password}
+      POSTGRES_DB: tradingvue
+    volumes: [pgdata:/var/lib/postgresql/data]
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tradingvue"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+  api:
+    image: ${ecr_url}:bootstrap
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+      # NOTE: app's lib/db.ts only disables SSL when the URL contains
+      # 'localhost'/'127.0.0.1'. The local Postgres has no SSL, so we add a
+      # harmless application_name=localhost to force the non-SSL path.
+      DATABASE_URL: postgres://tradingvue:${db_password}@db:5432/tradingvue?application_name=localhost
+      JWT_SECRET: ${jwt_secret}
+    env_file:
+      - app-secrets.env
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: always
+  web:
+    image: ${ecr_url}:web
+    ports: ["80:80"]
+    depends_on: [api]
+    restart: always
+volumes:
+  pgdata: {}
+COMPOSE
+
+# Bring up the database, run migrations, then start everything.
+docker compose up -d db
+until docker compose exec -T db pg_isready -U tradingvue; do sleep 3; done
+
+# The app references auth/feature tables that have NO migration in the repo
+# (only user_portfolio is migrated by the app + drizzle). Create them here so
+# signup, login, watchlists, preferences and alerts work.
+docker compose exec -T db psql -U tradingvue -d tradingvue <<'SQL'
+CREATE TABLE IF NOT EXISTS users (
+  id            SERIAL PRIMARY KEY,
+  username      TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS user_watchlists (
+  user_id    INTEGER PRIMARY KEY,
+  symbols    JSONB NOT NULL DEFAULT '[]'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS user_preferences (
+  user_id    INTEGER PRIMARY KEY,
+  state      JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS user_alerts (
+  id              TEXT PRIMARY KEY,
+  user_id         INTEGER NOT NULL,
+  symbol          TEXT NOT NULL,
+  target_price    NUMERIC NOT NULL,
+  condition       TEXT NOT NULL,
+  email           TEXT NOT NULL,
+  triggered       BOOLEAN NOT NULL DEFAULT FALSE,
+  triggered_at    TIMESTAMPTZ,
+  triggered_price NUMERIC,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+SQL
+
+# drizzle push creates user_portfolio (the one table the repo does migrate)
+docker run --rm --network tradingvue_default \
+  -e DATABASE_URL=postgres://tradingvue:${db_password}@db:5432/tradingvue \
+  ${ecr_url}:migrate-bootstrap || true
+docker compose up -d
