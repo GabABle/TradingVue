@@ -567,8 +567,11 @@ router.get("/market/news", async (req, res) => {
 
 // ── Forex helpers ──────────────────────────────────────────────────────────────
 const FOREX_CURRENCY_CODES = new Set([
+  // All currencies covered by the free Frankfurter (ECB) API used below.
   "USD", "EUR", "GBP", "JPY", "AUD", "NZD", "CAD", "CHF",
   "HKD", "SGD", "NOK", "SEK", "DKK", "ZAR", "MXN", "CNH", "TRY",
+  "CNY", "MYR", "INR", "KRW", "THB", "PHP", "IDR",
+  "PLN", "HUF", "CZK", "RON", "BGN", "ILS", "ISK", "BRL",
 ]);
 
 export const POPULAR_FOREX = [
@@ -605,6 +608,13 @@ export const POPULAR_FOREX = [
   { symbol: "USDMXN", alpacaSymbol: "USD/MXN", name: "US Dollar / Mexican Peso",            base: "USD", quote: "MXN", type: "forex" },
   { symbol: "USDZAR", alpacaSymbol: "USD/ZAR", name: "US Dollar / South African Rand",      base: "USD", quote: "ZAR", type: "forex" },
   { symbol: "USDTRY", alpacaSymbol: "USD/TRY", name: "US Dollar / Turkish Lira",            base: "USD", quote: "TRY", type: "forex" },
+  // Asian crosses (priced via Frankfurter/ECB cross rates)
+  { symbol: "SGDMYR", alpacaSymbol: "SGD/MYR", name: "Singapore Dollar / Malaysian Ringgit", base: "SGD", quote: "MYR", type: "forex" },
+  { symbol: "SGDJPY", alpacaSymbol: "SGD/JPY", name: "Singapore Dollar / Japanese Yen",       base: "SGD", quote: "JPY", type: "forex" },
+  { symbol: "SGDCNY", alpacaSymbol: "SGD/CNY", name: "Singapore Dollar / Chinese Yuan",       base: "SGD", quote: "CNY", type: "forex" },
+  { symbol: "USDCNY", alpacaSymbol: "USD/CNY", name: "US Dollar / Chinese Yuan",              base: "USD", quote: "CNY", type: "forex" },
+  { symbol: "USDMYR", alpacaSymbol: "USD/MYR", name: "US Dollar / Malaysian Ringgit",         base: "USD", quote: "MYR", type: "forex" },
+  { symbol: "USDINR", alpacaSymbol: "USD/INR", name: "US Dollar / Indian Rupee",              base: "USD", quote: "INR", type: "forex" },
 ];
 
 function parseForexPair(symbol: string): { base: string; quote: string } | null {

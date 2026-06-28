@@ -1,10 +1,11 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Plus, X, Star, GripVertical, ChevronDown, ChevronRight, Pencil, Check, Trash2, Bell, Briefcase } from "lucide-react";
+import { Plus, X, Star, GripVertical, ChevronDown, ChevronRight, Pencil, Check, Trash2, Bell, Briefcase, Download, Upload } from "lucide-react";
 import { useGetQuote } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   type WatchlistSection,
   createSection,
+  makeId,
   addSymbolToSections,
   removeSymbolFromSections,
   DEFAULT_STOCKS,
@@ -328,6 +329,34 @@ function SectionHeader({
   );
 }
 
+// Parse imported watchlist JSON into sections. Accepts the exported section
+// array, a { sections: [...] } wrapper, or a flat array of symbol strings.
+function normalizeImportedSections(parsed: unknown): WatchlistSection[] {
+  let raw: any = parsed;
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && Array.isArray((parsed as any).sections)) {
+    raw = (parsed as any).sections;
+  }
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+  if (raw.every((x: any) => typeof x === "string")) {
+    const syms = raw.map((x: string) => x.trim().toUpperCase()).filter(Boolean);
+    return syms.length ? [createSection("Imported", syms)] : [];
+  }
+  const out: WatchlistSection[] = [];
+  for (const sec of raw) {
+    if (!sec || typeof sec !== "object") continue;
+    const symbols = Array.isArray(sec.symbols)
+      ? sec.symbols.filter((x: any) => typeof x === "string" && x.trim()).map((x: string) => x.trim().toUpperCase())
+      : [];
+    out.push({
+      id: makeId(),
+      name: typeof sec.name === "string" && sec.name.trim() ? sec.name.trim() : "Imported",
+      symbols,
+      collapsed: !!sec.collapsed,
+    });
+  }
+  return out;
+}
+
 type SortDir = "desc" | "asc" | null;
 
 export function Watchlist({ sections: propSections, onSectionsChange, activeSymbol, onSelect, onSearchOpen, onAlertOpen, fullHeight }: WatchlistProps) {
@@ -414,6 +443,38 @@ export function Watchlist({ sections: propSections, onSectionsChange, activeSymb
 
   const toggleSort = useCallback(() => {
     setSortDir(d => d === null ? "desc" : d === "desc" ? "asc" : null);
+  }, []);
+
+  // -- Export / import --------------------------------------------------------
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleExport = useCallback(() => {
+    const blob = new Blob([JSON.stringify(sections, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `tradingvue-watchlist-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [sections]);
+
+  const handleImportFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const imported = normalizeImportedSections(JSON.parse(String(reader.result)));
+        if (imported.length === 0) { window.alert("No watchlist symbols found in that file."); return; }
+        setSections(imported);
+      } catch {
+        window.alert("Import failed: the file is not valid watchlist JSON.");
+      }
+    };
+    reader.readAsText(file);
   }, []);
 
   // --- Symbol drag state ---
@@ -592,6 +653,21 @@ export function Watchlist({ sections: propSections, onSectionsChange, activeSymb
             title={portfolioFilter ? "Show all symbols" : "Show tagged only"}
           >
             <Briefcase className="w-3.5 h-3.5" />
+          </button>
+          <input ref={fileInputRef} type="file" accept="application/json,.json" className="hidden" onChange={handleImportFile} />
+          <button
+            className="w-6 h-6 flex items-center justify-center rounded hover:bg-[#2a2e39] text-[#787b86] hover:text-[#d1d4dc] transition-colors"
+            onClick={handleExport}
+            title="Export watchlist"
+          >
+            <Download className="w-3.5 h-3.5" />
+          </button>
+          <button
+            className="w-6 h-6 flex items-center justify-center rounded hover:bg-[#2a2e39] text-[#787b86] hover:text-[#d1d4dc] transition-colors"
+            onClick={() => fileInputRef.current?.click()}
+            title="Import watchlist"
+          >
+            <Upload className="w-3.5 h-3.5" />
           </button>
           <button
             className="w-6 h-6 flex items-center justify-center rounded hover:bg-[#2a2e39] text-[#787b86] hover:text-[#d1d4dc] transition-colors"
