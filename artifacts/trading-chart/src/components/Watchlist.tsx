@@ -218,6 +218,8 @@ function SymbolRow({
           <Briefcase className={`w-3 h-3 ${isTagged ? "fill-[#26a69a]/20" : ""}`} />
         </button>
 
+        {/* Price alerts deprecated for now — bell hidden */}
+        {false && (
         {/* Bell icon — always visible, amber when alert active */}
         <button
           className={`shrink-0 p-0.5 rounded transition-all z-10 ${
@@ -230,6 +232,7 @@ function SymbolRow({
         >
           <Bell className={`w-3 h-3 ${hasAlert ? "fill-[#f59e0b]/20" : ""}`} />
         </button>
+        )}
 
         {/* Remove button — hover only */}
         <button

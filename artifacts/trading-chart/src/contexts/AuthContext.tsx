@@ -1,7 +1,15 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
+import {
+  type LocalUser,
+  getSession,
+  clearSession,
+  loginLocal,
+  registerLocal,
+  handleLocalApi,
+} from "@/lib/local-store";
 
-const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
-const TOKEN_KEY = "tradingvue_token";
+// Accounts and all user data are stored locally in the browser. No backend
+// account database exists, so upgrades never affect logins or watchlists.
 
 export interface AuthUser {
   userId: number;
@@ -21,59 +29,45 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!token) { setLoading(false); return; }
-    fetch(`${BASE}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.ok ? r.json() as Promise<{ user: AuthUser }> : Promise.reject())
-      .then(data => setUser(data.user))
-      .catch(() => { localStorage.removeItem(TOKEN_KEY); setToken(null); })
-      .finally(() => setLoading(false));
+    const session = getSession();
+    if (session) {
+      setUser(session.user);
+      setToken(session.token);
+    }
+    setLoading(false);
   }, []);
 
-  const applyAuth = (tok: string, usr: AuthUser) => {
-    localStorage.setItem(TOKEN_KEY, tok);
-    setToken(tok);
-    setUser(usr);
+  const apply = (session: { token: string; user: LocalUser }) => {
+    setToken(session.token);
+    setUser(session.user);
   };
 
   const login = async (username: string, password: string) => {
-    const r = await fetch(`${BASE}/api/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-    });
-    const data = await r.json() as { token?: string; user?: AuthUser; error?: string };
-    if (!r.ok) throw new Error(data.error ?? "Login failed");
-    applyAuth(data.token!, data.user!);
+    apply(await loginLocal(username, password));
   };
 
   const register = async (username: string, password: string) => {
-    const r = await fetch(`${BASE}/api/auth/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-    });
-    const data = await r.json() as { token?: string; user?: AuthUser; error?: string };
-    if (!r.ok) throw new Error(data.error ?? "Registration failed");
-    applyAuth(data.token!, data.user!);
+    apply(await registerLocal(username, password));
   };
 
   const logout = useCallback(() => {
-    localStorage.removeItem(TOKEN_KEY);
+    clearSession();
     setToken(null);
     setUser(null);
   }, []);
 
-  const authFetch = useCallback((url: string, init: RequestInit = {}) => {
-    return fetch(url, {
-      ...init,
-      headers: { ...init.headers, Authorization: `Bearer ${token ?? ""}` },
-    });
-  }, [token]);
+  // Serves user/alert endpoints from localStorage; passes market/chat/trading
+  // through to the stateless backend proxy.
+  const authFetch = useCallback(async (url: string, init: RequestInit = {}) => {
+    const local = await handleLocalApi(url, init);
+    if (local) return local;
+    return fetch(url, init);
+  }, []);
 
   return (
     <AuthContext.Provider value={{ user, token, loading, login, register, logout, authFetch }}>

@@ -1,6 +1,4 @@
-import { useEffect, useRef } from "react";
-
-const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+import { useEffect } from "react";
 
 export interface AlertTriggeredPayload {
   type: "alert_triggered";
@@ -15,45 +13,15 @@ export interface AlertTriggeredPayload {
   currentPrice: number;
 }
 
-export function useAlertEvents(token: string | null, onTriggered: (payload: AlertTriggeredPayload) => void) {
-  const cbRef = useRef(onTriggered);
-  cbRef.current = onTriggered;
-
+// Price alerts are deprecated for now: delivering them reliably (email when the
+// app is closed) requires a backend, and this build is frontend-first with a
+// stateless proxy only. This hook is intentionally a no-op so existing callers
+// keep compiling unchanged. Re-enable later by restoring a polling/notify impl.
+export function useAlertEvents(
+  _token: string | null,
+  _onTriggered: (payload: AlertTriggeredPayload) => void,
+): void {
   useEffect(() => {
-    if (!token) return;
-
-    let es: EventSource | null = null;
-    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
-    let alive = true;
-
-    function connect() {
-      if (!alive) return;
-      // EventSource doesn't support custom headers — pass token as query param
-      es = new EventSource(`${BASE}/api/alerts/events?token=${encodeURIComponent(token!)}`);
-
-      es.onmessage = (evt) => {
-        try {
-          const data = JSON.parse(evt.data) as { type: string } & AlertTriggeredPayload;
-          if (data.type === "alert_triggered") {
-            cbRef.current(data);
-          }
-        } catch { /* ignore parse errors */ }
-      };
-
-      es.onerror = () => {
-        es?.close();
-        if (alive) {
-          retryTimeout = setTimeout(connect, 5_000);
-        }
-      };
-    }
-
-    connect();
-
-    return () => {
-      alive = false;
-      if (retryTimeout) clearTimeout(retryTimeout);
-      es?.close();
-    };
-  }, [token]);
+    /* deprecated: no-op */
+  }, [_token]);
 }

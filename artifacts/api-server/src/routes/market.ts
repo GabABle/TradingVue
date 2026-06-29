@@ -819,7 +819,7 @@ async function fetchYahooFuturesQuote(yahooTicker: string): Promise<{
 
 // ── Live trade streaming via SSE (Alpaca IEX — free & real-time) ──────────────
 router.get("/market/stream", optionalAuth, (req: Request, res: Response) => {
-  if (!req.user) { res.status(401).end(); return; }
+  // Anonymous: no server-side accounts. Streaming uses env Alpaca credentials.
 
   const symbol   = (req.query.symbol   as string | undefined)?.toUpperCase().trim();
   const interval = (req.query.interval as string | undefined) ?? "1Min";

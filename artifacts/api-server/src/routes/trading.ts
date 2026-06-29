@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
-import { requireAuth } from "../lib/auth-middleware.js";
 
+// Paper-trading relay. Auth removed: there are no server-side accounts. Orders
+// use the shared Alpaca paper-trading credentials from the environment.
 const router = Router();
 
 const PAPER_BASE = "https://paper-api.alpaca.markets/v2";
@@ -30,38 +31,31 @@ async function alpacaFetch(path: string, options: RequestInit = {}) {
   try { return JSON.parse(text); } catch { return {}; }
 }
 
-// ── GET /api/trading/account ─────────────────────────────────────────────────
-router.get("/trading/account", requireAuth, async (_req: Request, res: Response) => {
+router.get("/trading/account", async (_req: Request, res: Response) => {
   try {
-    const account = await alpacaFetch("/account");
-    res.json(account);
+    res.json(await alpacaFetch("/account"));
   } catch (err: any) {
     res.status(err.status ?? 500).json({ error: err.message ?? "Failed to fetch account" });
   }
 });
 
-// ── GET /api/trading/positions ───────────────────────────────────────────────
-router.get("/trading/positions", requireAuth, async (_req: Request, res: Response) => {
+router.get("/trading/positions", async (_req: Request, res: Response) => {
   try {
-    const positions = await alpacaFetch("/positions");
-    res.json(positions);
+    res.json(await alpacaFetch("/positions"));
   } catch (err: any) {
     res.status(err.status ?? 500).json({ error: err.message ?? "Failed to fetch positions" });
   }
 });
 
-// ── GET /api/trading/orders ──────────────────────────────────────────────────
-router.get("/trading/orders", requireAuth, async (_req: Request, res: Response) => {
+router.get("/trading/orders", async (_req: Request, res: Response) => {
   try {
-    const orders = await alpacaFetch("/orders?status=all&limit=30&direction=desc");
-    res.json(orders);
+    res.json(await alpacaFetch("/orders?status=all&limit=30&direction=desc"));
   } catch (err: any) {
     res.status(err.status ?? 500).json({ error: err.message ?? "Failed to fetch orders" });
   }
 });
 
-// ── POST /api/trading/orders ─────────────────────────────────────────────────
-router.post("/trading/orders", requireAuth, async (req: Request, res: Response) => {
+router.post("/trading/orders", async (req: Request, res: Response) => {
   try {
     const { symbol, qty, side, type, time_in_force, limit_price } = req.body as {
       symbol: string;
@@ -72,7 +66,6 @@ router.post("/trading/orders", requireAuth, async (req: Request, res: Response) 
       limit_price?: number | string;
     };
 
-    // Alpaca crypto symbols (e.g. BTCUSD, ETHUSD) require "gtc" — "day" is invalid for crypto
     const sym = symbol.toUpperCase();
     const isCrypto = /^[A-Z]{2,10}USD$/.test(sym) && sym.length >= 5;
     const resolvedTif = isCrypto ? "gtc" : (time_in_force ?? "day");
@@ -88,18 +81,13 @@ router.post("/trading/orders", requireAuth, async (req: Request, res: Response) 
       body["limit_price"] = String(limit_price);
     }
 
-    const order = await alpacaFetch("/orders", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
-    res.json(order);
+    res.json(await alpacaFetch("/orders", { method: "POST", body: JSON.stringify(body) }));
   } catch (err: any) {
     res.status(err.status ?? 500).json({ error: err.message ?? "Failed to place order" });
   }
 });
 
-// ── DELETE /api/trading/orders/:id ───────────────────────────────────────────
-router.delete("/trading/orders/:id", requireAuth, async (req: Request, res: Response) => {
+router.delete("/trading/orders/:id", async (req: Request, res: Response) => {
   try {
     await alpacaFetch(`/orders/${req.params["id"]}`, { method: "DELETE" });
     res.json({ success: true });
