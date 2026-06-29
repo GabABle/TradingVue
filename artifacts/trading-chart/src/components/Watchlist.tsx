@@ -220,7 +220,6 @@ function SymbolRow({
 
         {/* Price alerts deprecated for now — bell hidden */}
         {false && (
-        {/* Bell icon — always visible, amber when alert active */}
         <button
           className={`shrink-0 p-0.5 rounded transition-all z-10 ${
             hasAlert
