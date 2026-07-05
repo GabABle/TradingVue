@@ -885,4 +885,70 @@ router.get("/market/stream", optionalAuth, (req: Request, res: Response) => {
   });
 });
 
+// -- Financials (Polygon fundamentals; keys stay server-side) -----------------
+async function fetchFinancials(symbol: string, timeframe: "annual" | "quarterly"): Promise<any[]> {
+  const url = polyUrl("/vX/reference/financials", {
+    ticker: symbol,
+    timeframe,
+    order: "desc",
+    limit: "12",
+    sort: "period_of_report_date",
+  });
+  const r = await fetch(url);
+  if (!r.ok) return [];
+  const data = await r.json() as any;
+  const results: any[] = data.results ?? [];
+  const val = (o: any): number | null => (o && typeof o.value === "number") ? o.value : null;
+  const periods = results.map((res: any) => {
+    const fin = res.financials ?? {};
+    const inc = fin.income_statement ?? {};
+    const bal = fin.balance_sheet ?? {};
+    const cf  = fin.cash_flow_statement ?? {};
+    const fy  = String(res.fiscal_year ?? (res.end_date ? String(res.end_date).slice(0, 4) : ""));
+    const fp  = String(res.fiscal_period ?? "");
+    const yy  = fy.slice(-2);
+    const label = timeframe === "annual" ? `'${yy}` : `${fp} '${yy}`;
+    return {
+      label,
+      revenue:     val(inc.revenues),
+      netIncome:   val(inc.net_income_loss),
+      assets:      val(bal.assets),
+      liabilities: val(bal.liabilities),
+      cfo: val(cf.net_cash_flow_from_operating_activities),
+      cfi: val(cf.net_cash_flow_from_investing_activities),
+      cff: val(cf.net_cash_flow_from_financing_activities),
+      _sort: String(res.period_of_report_date ?? res.end_date ?? ""),
+    };
+  });
+  periods.sort((a, b) => a._sort.localeCompare(b._sort));
+  return periods.slice(-5).map(({ _sort, ...rest }) => rest);
+}
+
+// -- /market/financials --------------------------------------------------------
+router.get("/market/financials", async (req, res) => {
+  try {
+    const { symbol, timeframe } = req.query as Record<string, string>;
+    if (!symbol) { res.status(400).json({ error: "Bad Request", message: "symbol is required" }); return; }
+    const upperSymbol = symbol.toUpperCase();
+    const tf: "annual" | "quarterly" = timeframe === "quarterly" ? "quarterly" : "annual";
+
+    const isFutures = isFuturesSymbol(upperSymbol);
+    const isForex   = !isFutures && isForexSymbol(upperSymbol);
+    const isCrypto  = !isFutures && !isForex && isCryptoSymbol(upperSymbol);
+
+    // Company financials only apply to stocks.
+    if (isFutures || isForex || isCrypto || !POLYGON_API_KEY) {
+      res.json({ symbol: upperSymbol, timeframe: tf, available: false, periods: [] });
+      return;
+    }
+
+    const periods = await fetchFinancials(upperSymbol, tf);
+    res.set("Cache-Control", "no-cache");
+    res.json({ symbol: upperSymbol, timeframe: tf, available: periods.length > 0, periods });
+  } catch (err: any) {
+    req.log.error({ err }, "Error fetching financials");
+    res.status(500).json({ error: "Internal Server Error", message: err?.message ?? "Failed to fetch financials" });
+  }
+});
+
 export default router;

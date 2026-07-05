@@ -1,7 +1,7 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { Watchlist } from "@/components/Watchlist";
 import { NewsPanel } from "@/components/NewsPanel";
-import { ChatPanel } from "@/components/ChatPanel";
+import { FinancialsPanel } from "@/components/FinancialsPanel";
 import { type WatchlistSection } from "@/lib/watchlist-sections";
 
 const MIN_WIDTH    = 280;
@@ -38,7 +38,7 @@ function loadWidth(): number {
   return DEFAULT_WIDTH;
 }
 
-type DragTarget = "panel" | "news" | "chat" | null;
+type DragTarget = "panel" | "news" | "financials" | null;
 
 export function RightPanel({
   sections,
@@ -49,16 +49,16 @@ export function RightPanel({
   onAlertOpen,
   chatContext,
 }: RightPanelProps) {
-  const [width, setWidth]           = useState<number>(loadWidth);
-  const [newsHeight, setNewsHeight]  = useState<number>(180);
-  const [chatHeight, setChatHeight]  = useState<number>(240);
+  const [width, setWidth]             = useState<number>(loadWidth);
+  const [newsHeight, setNewsHeight]   = useState<number>(180);
+  const [finHeight, setFinHeight]     = useState<number>(260);
 
   const dragging  = useRef<DragTarget>(null);
   const startX    = useRef(0);
   const startY    = useRef(0);
   const startW    = useRef(0);
   const startNews = useRef(0);
-  const startChat = useRef(0);
+  const startFin  = useRef(0);
   const panelRef  = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -79,12 +79,12 @@ export function RightPanel({
     startNews.current  = newsHeight;
   }, [newsHeight]);
 
-  const onChatResizeMouseDown = useCallback((e: React.MouseEvent) => {
+  const onFinResizeMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    dragging.current   = "chat";
-    startY.current     = e.clientY;
-    startChat.current  = chatHeight;
-  }, [chatHeight]);
+    dragging.current  = "financials";
+    startY.current    = e.clientY;
+    startFin.current  = finHeight;
+  }, [finHeight]);
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
@@ -100,15 +100,15 @@ export function RightPanel({
       if (target === "news") {
         const panelH = panelRef.current?.offsetHeight ?? 600;
         const delta  = startY.current - e.clientY;
-        const next   = Math.min(panelH - 240, Math.max(80, startNews.current + delta));
+        const next   = Math.min(panelH - 260, Math.max(80, startNews.current + delta));
         setNewsHeight(next);
       }
 
-      if (target === "chat") {
+      if (target === "financials") {
         const panelH = panelRef.current?.offsetHeight ?? 600;
         const delta  = startY.current - e.clientY;
-        const next   = Math.min(panelH - 200, Math.max(120, startChat.current + delta));
-        setChatHeight(next);
+        const next   = Math.min(panelH - 200, Math.max(180, startFin.current + delta));
+        setFinHeight(next);
       }
     };
     const onUp = () => { dragging.current = null; };
@@ -136,13 +136,15 @@ export function RightPanel({
     </div>
   );
 
+  const finSymbol = chatContext?.symbol ?? activeSymbol;
+
   return (
     <div
       ref={panelRef}
       className="relative shrink-0 flex flex-col border-l border-[#2a2e39] bg-[#131722] h-full overflow-hidden"
       style={{ width }}
     >
-      {/* ── Left resize handle ── */}
+      {/* Left resize handle */}
       <div
         onMouseDown={onPanelMouseDown}
         className="absolute left-0 top-0 bottom-0 w-1 z-20 cursor-col-resize group"
@@ -151,7 +153,7 @@ export function RightPanel({
         <div className="w-full h-full group-hover:bg-[#2962ff]/40 transition-colors" />
       </div>
 
-      {/* ── Watchlist (takes remaining height) ── */}
+      {/* Watchlist (takes remaining height) */}
       <div className="flex-1 min-h-0 overflow-hidden">
         <Watchlist
           sections={sections}
@@ -164,20 +166,16 @@ export function RightPanel({
         />
       </div>
 
-      {/* ── News resize handle ── */}
+      {/* News */}
       <ResizeHandle onMouseDown={onNewsResizeMouseDown} title="Drag to resize news" />
-
-      {/* ── News panel ── */}
       <div className="shrink-0 overflow-hidden" style={{ height: newsHeight }}>
-        <NewsPanel symbol={chatContext?.symbol ?? activeSymbol} />
+        <NewsPanel symbol={finSymbol} />
       </div>
 
-      {/* ── Chat resize handle ── */}
-      <ResizeHandle onMouseDown={onChatResizeMouseDown} title="Drag to resize chat" />
-
-      {/* ── Chat panel ── */}
-      <div className="shrink-0 overflow-hidden" style={{ height: chatHeight }}>
-        <ChatPanel context={chatContext} />
+      {/* Financials */}
+      <ResizeHandle onMouseDown={onFinResizeMouseDown} title="Drag to resize financials" />
+      <div className="shrink-0 overflow-hidden" style={{ height: finHeight }}>
+        <FinancialsPanel symbol={finSymbol} />
       </div>
     </div>
   );
