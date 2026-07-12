@@ -251,6 +251,7 @@ router.get("/market/bars", async (req, res) => {
     const isFutures   = isFuturesSymbol(upperSymbol);
     const isForex     = !isFutures && isForexSymbol(upperSymbol);
     const isCrypto    = !isFutures && !isForex && isCryptoSymbol(upperSymbol);
+    const isIntl      = !isFutures && !isForex && !isCrypto && isIntlStockSymbol(upperSymbol);
     const startDate   = start || getDefaultStart(timeframe);
     const limitNum    = parseInt(limit, 10);
 
@@ -272,6 +273,14 @@ router.get("/market/bars", async (req, res) => {
       // Polygon free tier supports crypto intraday
       const cryptoSymbol = normalizeCryptoSymbol(upperSymbol);
       const bars = await fetchPolygonCryptoBars(cryptoSymbol, timeframe, startDate, limitNum);
+      res.set("Cache-Control", "no-cache");
+      res.json({ symbol: upperSymbol, bars, nextPageToken: null });
+      return;
+    }
+
+    if (isIntl) {
+      // International exchanges (HK/SZ/SS/TSE/KRX/...) via Yahoo Finance
+      const bars = await fetchYahooFuturesBars(upperSymbol, timeframe, startDate, limitNum);
       res.set("Cache-Control", "no-cache");
       res.json({ symbol: upperSymbol, bars, nextPageToken: null });
       return;
@@ -311,6 +320,7 @@ router.get("/market/quote", async (req, res) => {
     const isFutures   = isFuturesSymbol(upperSymbol);
     const isForex     = !isFutures && isForexSymbol(upperSymbol);
     const isCrypto    = !isFutures && !isForex && isCryptoSymbol(upperSymbol);
+    const isIntl      = !isFutures && !isForex && !isCrypto && isIntlStockSymbol(upperSymbol);
 
     // ── Futures → Yahoo Finance
     if (isFutures) {
@@ -356,6 +366,20 @@ router.get("/market/quote", async (req, res) => {
         open: snap.open, high: snap.high, low: snap.low, volume: snap.volume,
         session: "regular" as MarketSession, prevClose: snap.prevClose, regularClose: snap.prevClose,
         timestamp: snap.timestamp,
+      });
+      return;
+    }
+
+    // ── International stock → Yahoo Finance
+    if (isIntl) {
+      const q = await fetchYahooStockQuote(upperSymbol);
+      if (!q) { res.status(404).json({ error: "Not Found", message: `No data for ${upperSymbol}` }); return; }
+      res.set("Cache-Control", "no-cache");
+      res.json({
+        symbol: upperSymbol, price: q.price, change: q.change, changePercent: q.changePercent,
+        open: q.open, high: q.high, low: q.low, volume: q.volume,
+        session: "regular" as MarketSession, prevClose: q.prevClose, regularClose: q.prevClose,
+        currency: q.currency, timestamp: q.timestamp,
       });
       return;
     }
@@ -452,8 +476,10 @@ router.get("/market/search", async (req, res) => {
       .slice(0, 8)
       .map((a: any) => ({ symbol: a.symbol, name: a.name ?? a.symbol, exchange: a.exchange ?? "US", type: "stock" as const }));
 
+    const intlMatches = upperQuery.length >= 2 ? await fetchYahooSearch(query) : [];
+
     const results = [
-      ...futuresMatches, ...forexMatches,
+      ...futuresMatches, ...forexMatches, ...intlMatches,
       ...cryptoMatches.map(c => ({ ...c, type: "crypto" as const })),
       ...stockResults.filter(s =>
         !cryptoMatches.some(c => c.symbol === s.symbol) &&
@@ -950,5 +976,65 @@ router.get("/market/financials", async (req, res) => {
     res.status(500).json({ error: "Internal Server Error", message: err?.message ?? "Failed to fetch financials" });
   }
 });
+
+// -- International exchanges (Yahoo Finance; free, no key) ----------------------
+const INTL_EXCHANGE_SUFFIXES = new Set([
+  // Hong Kong, Shenzhen, Shanghai, Tokyo, Korea (KOSPI/KOSDAQ) + a few majors.
+  "HK", "SZ", "SS", "T", "KS", "KQ", "TW", "TWO", "L", "SI", "AX", "TO", "DE", "PA", "SW",
+]);
+function isIntlStockSymbol(symbol: string): boolean {
+  const m = symbol.match(/^[A-Z0-9]{1,6}\.([A-Z]{1,4})$/);
+  return !!m && INTL_EXCHANGE_SUFFIXES.has(m[1]);
+}
+
+async function fetchYahooStockQuote(yahooTicker: string): Promise<{
+  price: number; change: number; changePercent: number;
+  open: number; high: number; low: number; volume: number;
+  prevClose: number; currency: string; timestamp: string;
+} | null> {
+  for (const host of ["query1", "query2"]) {
+    try {
+      const r = await fetch(`https://${host}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooTicker)}?interval=1d&range=5d`, { headers: YAHOO_HEADERS });
+      if (!r.ok) continue;
+      const data   = await r.json() as any;
+      const result = data.chart?.result?.[0];
+      if (!result) continue;
+      const meta      = result.meta ?? {};
+      const price     = meta.regularMarketPrice ?? 0;
+      const prevClose = meta.previousClose ?? meta.chartPreviousClose ?? meta.regularMarketPreviousClose ?? price;
+      const change    = price - prevClose;
+      return {
+        price, change, changePercent: prevClose !== 0 ? (change / prevClose) * 100 : 0,
+        open: meta.regularMarketOpen ?? price, high: meta.regularMarketDayHigh ?? price,
+        low: meta.regularMarketDayLow ?? price, volume: meta.regularMarketVolume ?? 0,
+        prevClose, currency: meta.currency ?? "USD",
+        timestamp: meta.regularMarketTime ? new Date(meta.regularMarketTime * 1000).toISOString() : new Date().toISOString(),
+      };
+    } catch { /* try next */ }
+  }
+  return null;
+}
+
+async function fetchYahooSearch(query: string): Promise<Array<{ symbol: string; name: string; exchange: string; type: "stock" }>> {
+  const params = new URLSearchParams({ q: query, newsCount: "0", quotesCount: "10" });
+  for (const host of ["query2", "query1"]) {
+    try {
+      const r = await fetch(`https://${host}.finance.yahoo.com/v1/finance/search?${params}`, { headers: YAHOO_HEADERS });
+      if (!r.ok) continue;
+      const data = await r.json() as any;
+      const quotes: any[] = data.quotes ?? [];
+      return quotes
+        .filter((q) => q.quoteType === "EQUITY" && typeof q.symbol === "string" && isIntlStockSymbol(String(q.symbol).toUpperCase()))
+        .slice(0, 5)
+        .map((q) => ({
+          symbol: String(q.symbol).toUpperCase(),
+          name: q.shortname ?? q.longname ?? q.symbol,
+          exchange: q.exchange ?? q.exchDisp ?? "INTL",
+          type: "stock" as const,
+        }));
+    } catch { /* try next */ }
+  }
+  return [];
+}
 
 export default router;

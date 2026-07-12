@@ -206,10 +206,15 @@ export default function TradingTerminal() {
   // ── Browser tab title: "AAPL $175.50 — TradingVue" ───────────────────────
   useEffect(() => {
     const price = (quoteData as any)?.price as number | undefined;
+    const cur = (quoteData as any)?.currency ?? 'USD';
     if (price != null) {
-      const formatted = price < 1
-        ? `$${price.toFixed(4)}`
-        : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(price);
+      const digits = price < 1 ? 4 : 2;
+      let formatted: string;
+      try {
+        formatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: cur, minimumFractionDigits: digits, maximumFractionDigits: digits }).format(price);
+      } catch {
+        formatted = price.toFixed(digits);
+      }
       document.title = `${symbol} ${formatted}`;
     } else {
       document.title = symbol;

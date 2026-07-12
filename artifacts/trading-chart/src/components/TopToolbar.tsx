@@ -96,10 +96,18 @@ export function TopToolbar({
 
   const validIntervals = RANGE_CONFIG[selectedRange].intervals;
 
-  const formatPrice = (p: number) =>
-    p < 1
-      ? `$${p.toFixed(4)}`
-      : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(p);
+  const currency = (quote as any)?.currency ?? "USD";
+  const formatPrice = (p: number) => {
+    const digits = p < 1 ? 4 : 2;
+    try {
+      return new Intl.NumberFormat("en-US", {
+        style: "currency", currency,
+        minimumFractionDigits: digits, maximumFractionDigits: digits,
+      }).format(p);
+    } catch {
+      return p.toFixed(digits);
+    }
+  };
 
   return (
     <div className="flex items-center justify-between gap-2 px-4 py-2 bg-[#1e222d] border-b border-[#2a2e39] shadow-sm shrink-0 overflow-x-auto hide-scrollbar">
