@@ -1,0 +1,101 @@
+name: Deploy environment
+
+# Reusable: deploys the already-built artifacts to one environment.
+# The job binds to a GitHub Environment; the "production" environment is where
+# you configure a Required Reviewers protection rule to gate promotion.
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      image_tag:
+        type: string
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Load deploy parameters from SSM
+        run: |
+          aws ssm get-parameters-by-path --path "/tradingvue/${{ inputs.environment }}/" \
+            --query 'Parameters[*].[Name,Value]' --output text |
+          while IFS=$'\t' read -r name value; do
+            key=$(basename "$name" | tr '[:lower:]' '[:upper:]')
+            echo "$key=$value" >> "$GITHUB_ENV"
+          done
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Run database migrations (one-off ECS task)
+        run: |
+          chmod +x scripts/deploy/run-migration.sh
+          scripts/deploy/run-migration.sh \
+            "$ECS_CLUSTER" \
+            "$MIGRATE_TASK_FAMILY" \
+            "${ECR_REPOSITORY_URL}:migrate-${{ inputs.image_tag }}" \
+            "$PRIVATE_SUBNET_IDS" \
+            "$API_SECURITY_GROUP_ID"
+
+      - name: Download current API task definition
+        run: |
+          aws ecs describe-task-definition --task-definition "$API_TASK_FAMILY" \
+            --query 'taskDefinition' --output json \
+          | jq 'del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy)' \
+            > taskdef.json
+
+      - name: Render new image into task definition
+        id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: taskdef.json
+          container-name: api
+          image: ${{ env.ECR_REPOSITORY_URL }}:${{ inputs.image_tag }}
+
+      - name: Deploy API to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          service: ${{ env.API_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-${{ inputs.image_tag }}
+          path: frontend-dist
+
+      - name: Publish frontend to S3 + invalidate CloudFront
+        run: |
+          # Long-cache the fingerprinted assets, never-cache the HTML entrypoint.
+          aws s3 sync frontend-dist "s3://${FRONTEND_BUCKET}" --delete \
+            --cache-control "public,max-age=31536000,immutable" \
+            --exclude "index.html"
+          aws s3 cp frontend-dist/index.html "s3://${FRONTEND_BUCKET}/index.html" \
+            --cache-control "no-cache"
+          aws cloudfront create-invalidation \
+            --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" --paths "/*"
+
+      - name: Smoke test
+        run: |
+          for i in $(seq 1 10); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "https://${CLOUDFRONT_DOMAIN}/api/health" || true)
+            echo "Attempt $i: /api/health -> $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 15
+          done
+          echo "Smoke test failed: /api/health never returned 200" >&2
+          exit 1

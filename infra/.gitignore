@@ -1,0 +1,5 @@
+# Terraform local state (never commit)
+*.tfstate
+*.tfstate.*
+.terraform/
+*.tfvars.local

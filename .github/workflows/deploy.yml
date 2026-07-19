@@ -1,0 +1,38 @@
+name: Deploy
+
+# Every push to master builds once, deploys to staging automatically, then
+# waits for a manual approval (GitHub Environment protection rule on
+# "production") before promoting the SAME artifacts to production.
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+    secrets: inherit
+
+  staging:
+    needs: build
+    uses: ./.github/workflows/deploy-env.yml
+    with:
+      environment: staging
+      image_tag: ${{ needs.build.outputs.image_tag }}
+    secrets: inherit
+
+  production:
+    needs: staging
+    uses: ./.github/workflows/deploy-env.yml
+    with:
+      environment: production
+      image_tag: ${{ needs.build.outputs.image_tag }}
+    secrets: inherit
