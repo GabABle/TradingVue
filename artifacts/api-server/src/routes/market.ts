@@ -251,7 +251,8 @@ router.get("/market/bars", async (req, res) => {
     const isFutures   = isFuturesSymbol(upperSymbol);
     const isForex     = !isFutures && isForexSymbol(upperSymbol);
     const isCrypto    = !isFutures && !isForex && isCryptoSymbol(upperSymbol);
-    const isIntl      = !isFutures && !isForex && !isCrypto && isIntlStockSymbol(upperSymbol);
+    const isIndex     = !isFutures && !isForex && !isCrypto && isIndexSymbol(upperSymbol);
+    const isIntl      = !isFutures && !isForex && !isCrypto && !isIndex && isIntlStockSymbol(upperSymbol);
     const startDate   = start || getDefaultStart(timeframe);
     const limitNum    = parseInt(limit, 10);
 
@@ -273,6 +274,14 @@ router.get("/market/bars", async (req, res) => {
       // Polygon free tier supports crypto intraday
       const cryptoSymbol = normalizeCryptoSymbol(upperSymbol);
       const bars = await fetchPolygonCryptoBars(cryptoSymbol, timeframe, startDate, limitNum);
+      res.set("Cache-Control", "no-cache");
+      res.json({ symbol: upperSymbol, bars, nextPageToken: null });
+      return;
+    }
+
+    if (isIndex) {
+      // Market indices (SPX/DJI/NDQ/HSI/KOSPI/TOPIX/...) via Yahoo Finance
+      const bars = await fetchYahooFuturesBars(indexYahooTicker(upperSymbol), timeframe, startDate, limitNum);
       res.set("Cache-Control", "no-cache");
       res.json({ symbol: upperSymbol, bars, nextPageToken: null });
       return;
@@ -320,7 +329,8 @@ router.get("/market/quote", async (req, res) => {
     const isFutures   = isFuturesSymbol(upperSymbol);
     const isForex     = !isFutures && isForexSymbol(upperSymbol);
     const isCrypto    = !isFutures && !isForex && isCryptoSymbol(upperSymbol);
-    const isIntl      = !isFutures && !isForex && !isCrypto && isIntlStockSymbol(upperSymbol);
+    const isIndex     = !isFutures && !isForex && !isCrypto && isIndexSymbol(upperSymbol);
+    const isIntl      = !isFutures && !isForex && !isCrypto && !isIndex && isIntlStockSymbol(upperSymbol);
 
     // ── Futures → Yahoo Finance
     if (isFutures) {
@@ -366,6 +376,20 @@ router.get("/market/quote", async (req, res) => {
         open: snap.open, high: snap.high, low: snap.low, volume: snap.volume,
         session: "regular" as MarketSession, prevClose: snap.prevClose, regularClose: snap.prevClose,
         timestamp: snap.timestamp,
+      });
+      return;
+    }
+
+    // ── Index → Yahoo Finance (values shown as plain numbers)
+    if (isIndex) {
+      const q = await fetchYahooStockQuote(indexYahooTicker(upperSymbol));
+      if (!q) { res.status(404).json({ error: "Not Found", message: `No data for ${upperSymbol}` }); return; }
+      res.set("Cache-Control", "no-cache");
+      res.json({
+        symbol: upperSymbol, price: q.price, change: q.change, changePercent: q.changePercent,
+        open: q.open, high: q.high, low: q.low, volume: q.volume,
+        session: "regular" as MarketSession, prevClose: q.prevClose, regularClose: q.prevClose,
+        currency: "", timestamp: q.timestamp,
       });
       return;
     }
@@ -477,9 +501,13 @@ router.get("/market/search", async (req, res) => {
       .map((a: any) => ({ symbol: a.symbol, name: a.name ?? a.symbol, exchange: a.exchange ?? "US", type: "stock" as const }));
 
     const intlMatches = upperQuery.length >= 2 ? await fetchYahooSearch(query) : [];
+    const indicesMatches = POPULAR_INDICES
+      .filter(i => i.symbol.startsWith(upperQuery) || i.symbol.includes(upperQuery) || i.name.toUpperCase().includes(upperQuery) || i.yahoo.includes(upperQuery))
+      .slice(0, 6)
+      .map(i => ({ symbol: i.symbol, name: i.name, exchange: "INDEX", type: "index" as const }));
 
     const results = [
-      ...futuresMatches, ...forexMatches, ...intlMatches,
+      ...indicesMatches, ...futuresMatches, ...forexMatches, ...intlMatches,
       ...cryptoMatches.map(c => ({ ...c, type: "crypto" as const })),
       ...stockResults.filter(s =>
         !cryptoMatches.some(c => c.symbol === s.symbol) &&
@@ -1035,6 +1063,35 @@ async function fetchYahooSearch(query: string): Promise<Array<{ symbol: string; 
     } catch { /* try next */ }
   }
   return [];
+}
+
+// -- Market indices (Yahoo Finance; free, no key) -----------------------------
+const POPULAR_INDICES = [
+  { symbol: "SPX",    yahoo: "^GSPC",  name: "S&P 500" },
+  { symbol: "DJI",    yahoo: "^DJI",   name: "Dow Jones Industrial Average" },
+  { symbol: "NDQ",    yahoo: "^IXIC",  name: "Nasdaq Composite" },
+  { symbol: "NDX",    yahoo: "^NDX",   name: "Nasdaq 100" },
+  { symbol: "RUT",    yahoo: "^RUT",   name: "Russell 2000" },
+  { symbol: "VIX",    yahoo: "^VIX",   name: "CBOE Volatility Index" },
+  { symbol: "HSI",    yahoo: "^HSI",   name: "Hang Seng Index" },
+  { symbol: "KOSPI",  yahoo: "^KS11",  name: "KOSPI Composite Index" },
+  { symbol: "KOSDAQ", yahoo: "^KQ11",  name: "KOSDAQ Composite Index" },
+  { symbol: "N225",   yahoo: "^N225",  name: "Nikkei 225" },
+  { symbol: "TOPIX",  yahoo: "1306.T", name: "TOPIX (NEXT FUNDS ETF)" },
+  { symbol: "STI",    yahoo: "^STI",   name: "Straits Times Index" },
+  { symbol: "FTSE",   yahoo: "^FTSE",  name: "FTSE 100" },
+  { symbol: "DAX",    yahoo: "^GDAXI", name: "DAX" },
+];
+function lookupIndex(symbol: string) {
+  const u = symbol.toUpperCase();
+  return POPULAR_INDICES.find((i) => i.symbol === u || i.yahoo.toUpperCase() === u);
+}
+function isIndexSymbol(symbol: string): boolean {
+  const u = symbol.toUpperCase();
+  return !!lookupIndex(u) || /^\^[A-Z0-9]{1,6}$/.test(u);
+}
+function indexYahooTicker(symbol: string): string {
+  return lookupIndex(symbol)?.yahoo ?? symbol.toUpperCase();
 }
 
 export default router;
